@@ -202,6 +202,32 @@ static class U
         using (var p = Process.Start(psi)) { p.StandardInput.Close(); p.WaitForExit(120000); Log.Write("display " + mode + " exit " + (p.HasExited ? p.ExitCode.ToString() : "timeout")); }
     }
     // after the display script: Sharp keeps the owner's look (dgVoodoo [DirectX] Antialiasing 4x / Filtering 16); Low-end / Very low keep the script's
+    // v1.3 (owner 11-24: plain GOG copy crashed at start in dxcore.dll; GOG + Patch, which has these two, works): on every base
+    // [General] EnumerateRefreshRates = true and [GeneralExt] FullscreenAttributes = fake (borderless); everything else stays
+    public static void SafeConf(string game)
+    {
+        var p = Path.Combine(game, "dgVoodoo.conf"); if (!File.Exists(p)) return;
+        var enc = Encoding.GetEncoding(28591); var t = enc.GetString(File.ReadAllBytes(p));
+        t = SetKey(t, "General", "EnumerateRefreshRates", "true");
+        t = SetKey(t, "GeneralExt", "FullscreenAttributes", "fake");
+        t = SetKey(t, "GeneralExt", "FPSLimit", "60");               // (owner 11-24: 60 fps cap by default on every option; change it in dgVoodoo.conf)
+        File.WriteAllBytes(p, enc.GetBytes(t));
+        Log.Write("dgVoodoo.conf: EnumerateRefreshRates = true, FullscreenAttributes = fake, FPSLimit = 60");
+    }
+
+    // set key = value inside [section] (adds the line at the end of the section when it is missing)
+    public static string SetKey(string t, string section, string key, string value)
+    {
+        var m = Regex.Match(t, @"(?ms)^\[" + Regex.Escape(section) + @"\][^\r\n]*\r?\n(.*?)(?=^\[|\z)");
+        if (!m.Success) return t;
+        var body = m.Groups[1].Value;
+        var k = Regex.Match(body, @"(?m)^(" + Regex.Escape(key) + @"[ \t]*=)[ \t]*([^\r\n]*)");
+        string nb;
+        if (k.Success) nb = body.Substring(0, k.Index) + k.Groups[1].Value + " " + value + body.Substring(k.Index + k.Length);
+        else { var nl = t.Contains("\r\n") ? "\r\n" : "\n"; var pad = new string(' ', Math.Max(1, 36 - key.Length)); nb = key + pad + "= " + value + nl + body; }
+        return t.Substring(0, m.Groups[1].Index) + nb + t.Substring(m.Groups[1].Index + m.Groups[1].Length);
+    }
+
     public static void SharpLook(Payload c, string game, string mode)
     {
         if (mode != "sharp") return;
@@ -542,6 +568,7 @@ static class Installer
         prog(0.93, "Display settings");
         U.RunDisplay(dir, o.Display);
         U.SharpLook(c, dir, o.Display);
+        U.SafeConf(dir);
         string un = Path.Combine(dir, "Uninstall.exe");
         File.Copy(Application.ExecutablePath, un, true);
         list.Add("Uninstall.exe");
@@ -708,6 +735,10 @@ static class Installer
                 foreach (var f in new[] { "dgVoodoo.conf.display-backup", "config.qvm.display-backup" }) x.Backup(f);   // the display script's own backups: removed again on uninstall
                 U.RunDisplay(g, o.Display);
                 U.SharpLook(c, g, o.Display);
+                U.SafeConf(g);
+                // the display script also writes config.qvm (the game's own resolution): the profile we hand back is the one after it
+                var cr = x.Rows.LastOrDefault(r => r[0] == "config"); var cq = Path.Combine(g, "config.qvm");
+                if (cr != null && File.Exists(cq)) x.Row("config", cr[1], U.Md5(cq));
             }
             string un = Path.Combine(x.Bk, "Uninstall.exe");
             File.Copy(Application.ExecutablePath, un, true);

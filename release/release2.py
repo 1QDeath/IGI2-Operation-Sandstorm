@@ -109,6 +109,12 @@ def full_stage(exe, display, build_dir):
         sec, n = re.subn(r'(?m)^(%s[ \t]*=)[^\r\n]*' % k, lambda m: m.group(1) + ' ' + v, sec)
         assert n == 1, k
     t = t[:dx.start()] + sec + t[dx.end():]
+    # v1.3: the two keys a plain GOG copy lacked (dxcore.dll crash at start): refresh rates listed, borderless fullscreen
+    for secname, k, v in (('General', 'EnumerateRefreshRates', 'true'), ('GeneralExt', 'FullscreenAttributes', 'fake'), ('GeneralExt', 'FPSLimit', '60')):
+        m2 = re.search(r'(?ms)^\[%s\][^\r\n]*\r?\n(.*?)(?=^\[|\Z)' % secname, t)
+        body, n = re.subn(r'(?m)^(%s[ \t]*=)[^\r\n]*' % k, lambda m: m.group(1) + ' ' + v, m2.group(1))
+        assert n == 1, k
+        t = t[:m2.start(1)] + body + t[m2.end(1):]
     open(conf, 'wb').write(t.encode('latin1'))
     # our ASI loader + HD menu add-on
     shutil.copy2(ASILOADER, os.path.join(st, 'version.dll'))
@@ -131,13 +137,15 @@ OPERATION SANDSTORM - IGI 2
 
 Start the game from the desktop shortcut or igi2.exe and pick Operation Sandstorm.
 Picture settings: IGI2_Display_Setup.cmd. Uninstall: Windows Settings > Apps.
+Frame rate: capped at 60 - change FPSLimit in dgVoodoo.conf for more.
 '''
 
 ADDON_README = '''
-OPERATION SANDSTORM 1.1 - a new IGI 2 mission
+OPERATION SANDSTORM 1.3 - a new IGI 2 mission
 
 Run Setup.exe, pick your IGI 2 folder, Install. Sandstorm comes after the original missions and is unlocked.
 Uninstall: Windows Settings > Apps > Operation Sandstorm (every changed file comes back).
+Frame rate: capped at 60 - change FPSLimit in dgVoodoo.conf (game folder) for more.
 '''
 
 FLY_README = '''
@@ -298,7 +306,7 @@ def addon_payload(st, exe, display):
         % (len(recipes), ref_total >> 20, own_total >> 20, len(exe_patch['runs']), len(exe_patch['tail']) // 2))
     readme(os.path.join(pay, 'Sandstorm - README.txt'), ADDON_README)
     exe_orig = [R.sha1(os.path.join(R.PRE_PATCH, 'igi2.exe')), R.sha1(os.path.join(REPO, 'backup', 'igi2.exe.original-6afe26e3'))]
-    setup = dict(mode='addon', product='Operation Sandstorm', version='1.1', key='IGI2_OperationSandstorm', lang=lang, sprites=sprites,
+    setup = dict(mode='addon', product='Operation Sandstorm', version='1.3', key='IGI2_OperationSandstorm', lang=lang, sprites=sprites,
                  publisher='1QDeath', made_by=BRAND['made_by'], discord=BRAND['discord'], thanks='',
                  welcome='This adds Operation Sandstorm, a new single-player mission, to your IGI 2: Covert Strike (any version: '
                          'GOG, retail / CD with the official patches, other stores, community patches). Your original missions stay; '
@@ -320,7 +328,7 @@ def build_dir_of(st):
 
 def full_setup(st):
     size = sum(os.path.getsize(os.path.join(st, f)) for f in walk(st))
-    return dict(mode='full', product='IGI 2 - Operation Sandstorm', version='1.0', key='IGI2_OperationSandstorm_Full',
+    return dict(mode='full', product='IGI 2 - Operation Sandstorm', version='1.3', key='IGI2_OperationSandstorm_Full',
                 publisher='1QDeath', made_by=BRAND['made_by'], discord=BRAND['discord'], thanks='',
                 welcome='This installs IGI 2: Covert Strike with Operation Sandstorm, a new single-player mission.',
                 default_dir=r'C:\Games\IGI2 Sandstorm', size=size, mission_id=MID, sharp_conf=SHARP_CONF)

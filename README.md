@@ -1,4 +1,4 @@
-# Operation Sandstorm 1.1 - a new mission for IGI 2: Covert Strike
+# Operation Sandstorm 1.3 - a new mission for IGI 2: Covert Strike
 
 Download the release (`Setup.exe` + `Sandstorm.dat`), run `Setup.exe`, pick your IGI 2 folder, Install. Sandstorm comes after
 the original missions and is unlocked. This repository is the source; it contains no game files.
@@ -14,7 +14,7 @@ credits page. Setup logs your exe hash in `_Sandstorm_backup\manifest.txt` - sen
 
 ## Resolution and frame rate
 - Options > Graphics: 16 sizes, applied at the next start. Or `dgVoodoo.conf` `[DirectX]` `Resolution = h:1920, v:1080`.
-- Frame cap: `dgVoodoo.conf` `[GeneralExt]` `FPSLimit = 60` (0 = none), or `dgVoodooCpl.exe`.
+- Frame rate: capped at 60 by default. For more, change `FPSLimit` in `dgVoodoo.conf` `[GeneralExt]` (0 = no cap), or use `dgVoodooCpl.exe`.
 
 ## Uninstall
 Windows Settings > Apps > Operation Sandstorm. Every changed file comes back, igi2.exe included.
