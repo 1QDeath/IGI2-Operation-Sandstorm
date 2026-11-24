@@ -152,7 +152,20 @@ static class U
         Directory.CreateDirectory(Path.GetDirectoryName(dst));
         if (!CreateHardLink(dst, src, IntPtr.Zero)) File.Copy(src, dst, true);
     }
-    public static bool GameRunning() { return Process.GetProcessesByName("igi2").Length > 0; }
+    // an igi2.exe running FROM this game folder (another copy of the game elsewhere does not block); unknown path = blocks
+    public static bool GameRunning(string dir)
+    {
+        foreach (var p in Process.GetProcessesByName("igi2"))
+        {
+            try
+            {
+                var f = Path.GetFullPath(p.MainModule.FileName);
+                if (dir == null || f.StartsWith(Path.GetFullPath(dir).TrimEnd('\\') + "\\",StringComparison.OrdinalIgnoreCase)) return true;
+            }
+            catch { return true; }
+        }
+        return false;
+    }
     public static bool IsGame(string d)
     {
         return !string.IsNullOrEmpty(d) && File.Exists(Path.Combine(d, "igi2.exe")) && Directory.Exists(Path.Combine(d, "MISSIONS", "multiplayer"));
@@ -316,6 +329,66 @@ static class Qvm
         if (v >= -32768 && v <= 32767) { var r = new byte[3]; r[0] = 0x0a; Array.Copy(BitConverter.GetBytes((short)v), 0, r, 1, 2); return r; }
         var x = new byte[5]; x[0] = 0x08; Array.Copy(BitConverter.GetBytes(v), 0, x, 1, 4); return x;
     }
+    // MISSIONS\igi2.qvm: DefineMissionListItem(<id>); ... -> ids in order (any version's file), null when unreadable
+    public static List<int> ListIds(byte[] b)
+    {
+        try
+        {
+            if (Encoding.ASCII.GetString(b, 0, 4) != "LOOP") return null;
+            int symT = (int)U32(b, 12), symD = (int)U32(b, 16), symTS = (int)U32(b, 20), code = (int)U32(b, 44), size = (int)U32(b, 48), idx = -1;
+            for (int k = 0; k < symTS / 4; k++)
+            {
+                int o = symD + (int)U32(b, symT + 4 * k), e = Array.IndexOf(b, (byte)0, o);
+                if (Encoding.ASCII.GetString(b, o, e - o) == "DefineMissionListItem") { idx = k; break; }
+            }
+            if (idx < 0) return null;
+            var r = new List<int>();
+            for (int p = code; p < code + size - 12; p++)
+            {
+                int q = -1;
+                if (b[p] == 0x13 && idx < 256 && b[p + 1] == idx) q = p + 2;
+                else if (b[p] == 0x14 && BitConverter.ToUInt16(b, p + 1) == idx) q = p + 3;
+                else if (b[p] == 0x12 && U32(b, p + 1) == idx) q = p + 5;
+                if (q < 0 || b[q] != 0x07 || U32(b, q + 1) != 1) continue;
+                int a = code + (int)U32(b, q + 5); if (b[q + 9] != 0x03 || a != q + 14) continue;
+                int w; int? v = ReadInt(b, a, out w);
+                if (v != null && b[a + w] == 0) { r.Add(v.Value); p = a + w; }
+            }
+            return r;
+        }
+        catch { return null; }
+    }
+
+    // a mission list file (same layout as the game's own): header, one symbol, the calls
+    public static byte[] ListEncode(List<int> ids, byte[] like)
+    {
+        var code = new MemoryStream();
+        foreach (var id in ids)
+        {
+            code.WriteByte(0x13); code.WriteByte(0);
+            code.WriteByte(0x07); code.Write(BitConverter.GetBytes(1u), 0, 4);
+            long tab = code.Position; code.Write(new byte[4], 0, 4);
+            code.WriteByte(0x03); long bra = code.Position; code.Write(new byte[4], 0, 4);
+            long start = code.Position;
+            var arg = Enc(id);
+            long at = code.Position; code.Write(arg, 0, arg.Length); code.WriteByte(0x00);
+            long end = code.Position;
+            code.Position = tab; code.Write(BitConverter.GetBytes((uint)at), 0, 4);
+            code.Position = bra; code.Write(BitConverter.GetBytes((uint)(end - start)), 0, 4);
+            code.Position = end; code.WriteByte(0x18);
+        }
+        code.WriteByte(0x00);
+        var symD = Encoding.ASCII.GetBytes("DefineMissionListItem\0"); var symT = BitConverter.GetBytes(0u);
+        int baseOff = 0x40, oSymT = baseOff, oSymD = oSymT + symT.Length, oStrT = oSymD + symD.Length, oStrD = oStrT, oCode = oStrD;
+        var ms = new MemoryStream(); var w = new BinaryWriter(ms);
+        w.Write(Encoding.ASCII.GetBytes("LOOP")); w.Write(U32(like, 4)); w.Write(U32(like, 8));
+        w.Write((uint)oSymT); w.Write((uint)oSymD); w.Write((uint)symT.Length); w.Write((uint)symD.Length);
+        w.Write((uint)oStrT); w.Write((uint)oStrD); w.Write(0u); w.Write(0u); w.Write((uint)oCode); w.Write((uint)code.Length);
+        while (ms.Position < baseOff) w.Write((byte)0);
+        w.Write(symT); w.Write(symD); w.Write(code.ToArray()); w.Flush();
+        return ms.ToArray();
+    }
+
     public static Dictionary<int, int> Progress(byte[] b)
     {
         int c, s; var r = new Dictionary<int, int>();
@@ -376,6 +449,7 @@ class Options
     public string Dir;
     public bool Shortcut = true;
     public string Display = "sharp";
+    public bool ForceUnknownExe;                 // test switch /unknownexe: treat the exe as unknown (no patch)
 }
 
 static class Installer
@@ -387,6 +461,7 @@ static class Installer
         var o = new Options();
         o.Dir = a.Get("/D=") ?? (c.Full ? c.S("default_dir") : U.FindGog(c.S("gog_id")));
         if (a.Has("/noshortcut")) o.Shortcut = false;
+        if (a.Has("/unknownexe")) { o.ForceUnknownExe = true; AllowUnknownExe = true; }
         if (a.Get("/display=") != null) o.Display = a.Get("/display=").ToLowerInvariant();
         string err = Check(c, o.Dir);
         if (err != null) { Console.Error.WriteLine(err); return 2; }
@@ -399,7 +474,7 @@ static class Installer
     public static string Check(Payload c, string dir)
     {
         if (string.IsNullOrWhiteSpace(dir)) return "Choose a folder.";
-        if (U.GameRunning()) return "IGI 2 is running - close the game first.";
+        if (U.GameRunning(dir)) return "IGI 2 is running from this folder - close the game first.";
         if (c.Full)
         {
             if (File.Exists(Path.Combine(dir, "igi2.exe"))) return "That folder already holds an IGI 2 - choose an empty or new folder.";
@@ -409,26 +484,35 @@ static class Installer
         }
         if (!U.IsGame(dir)) return "This is not an IGI 2 folder (igi2.exe and MISSIONS\\multiplayer expected).";
         string loc = Path.Combine(dir, "MISSIONS", c.S("location"));
-        if (!Directory.Exists(Path.Combine(loc, c.S("base")))) return "The multiplayer map Sandstorm of IGI 2 is missing in this folder.";
+        if (!Directory.Exists(Path.Combine(loc, c.S("base")))) return "The multiplayer map Sandstorm (MISSIONS\\multiplayer\\sandstorm) is missing in this IGI 2 folder.";
+        if (!Directory.Exists(Path.Combine(loc, c.S("own_common")))) return "MISSIONS\\multiplayer\\common is missing in this IGI 2 folder.";
+        if (!File.Exists(Path.Combine(dir, "MISSIONS", "igi2.qvm"))) return "MISSIONS\\igi2.qvm (the mission list) is missing in this IGI 2 folder.";
+        if (!File.Exists(Path.Combine(dir, "MENUSYSTEM", "loadingscreen.res"))) return "MENUSYSTEM\\loadingscreen.res is missing in this IGI 2 folder.";
+        if (!Directory.Exists(Path.Combine(dir, "LANGUAGE"))) return "The LANGUAGE folder is missing in this IGI 2 folder.";
         var bk = Path.Combine(dir, BK);
         bool ours = File.Exists(Path.Combine(bk, "manifest.txt"));
         if (Directory.Exists(Path.Combine(loc, c.S("folder"))) && !ours) return "This folder already holds a Sandstorm mission that this setup did not install - remove it first.";
-        if (!ours)
-        {
-            foreach (var kv in c.Map("shared"))
-            {
-                var p = Path.Combine(dir, kv.Key);
-                if (!File.Exists(p) || U.Md5(p) != kv.Value) return "This IGI 2 has changed game files (" + kv.Key + " - another mod?). Setup needs the GOG game files.";
-            }
-            var ex = U.Sha1(Path.Combine(dir, "igi2.exe"));
-            if (!c.List("exe_orig_sha1").Contains(ex) && ex != c.S("exe_new_sha1")) return "This igi2.exe is not one Setup knows (GOG or GOG with the widescreen patch).";
-            var lst = Path.Combine(dir, "MISSIONS", "igi2.qvm");
-            if (!File.Exists(lst)) return "MISSIONS\\igi2.qvm is missing.";
-        }
-        if (!File.Exists(Path.Combine(dir, "dgVoodoo.conf"))) return "dgVoodoo.conf is missing next to igi2.exe (the GOG game ships it).";
         if (new DriveInfo(Path.GetPathRoot(Path.GetFullPath(dir))).AvailableFreeSpace < c.L("size") + (100L << 20) && !ours) return "Not enough free disk space.";
+        // the mission needs the engine fixes: an exe that cannot take them is refused (rig 11-24: with the stock exe the screen turns grey
+        // about a minute into the mission, every run)
+        if (!AllowUnknownExe)
+        {
+            var ex = Path.Combine(dir, "igi2.exe");
+            var mf = Path.Combine(bk, "files", "igi2.exe");
+            var src = File.ReadAllBytes(ours && File.Exists(mf) ? mf : ex);
+            string why;
+            if (ApplyExePatch(src, (Dictionary<string, object>)c.J["exe_patch"], out why) == null)
+            {
+                var prot = Protection(src);
+                return "Operation Sandstorm needs its engine fixes, and this igi2.exe cannot take them (" + why + (prot.Length > 0 ? "; copy protection: " + prot : "") + ").\n\n" +
+                       "Supported: the GOG igi2.exe (plain or with the widescreen patch) and exes of the same build such as the community 1.3 exe.\n\n" +
+                       "Send this to 1QDeath (Discord) to get your version supported:\nsha1 " + Sha(src) + ", " + src.Length + " bytes";
+            }
+        }
         return null;
     }
+
+    public static bool AllowUnknownExe;          // /unknownexe (testing): install without the fixes instead of refusing
 
     public static void Run(Payload c, Options o, Action<double, string> prog)
     {
@@ -508,16 +592,36 @@ static class Installer
         using (var s = e.Open()) using (var ms = new MemoryStream()) { s.CopyTo(ms); return ms.ToArray(); }
     }
 
+    public static List<string> Warnings = new List<string>();
+    static readonly Encoding L1 = Encoding.GetEncoding(28591);
+
     static void RunAddon(Payload c, Options o, Action<double, string> prog)
     {
         string g = Path.GetFullPath(o.Dir);
         var x = Ctx.Load(g);
-        Log.PathName = null;
+        Warnings.Clear();
         string loc = Path.Combine(g, "MISSIONS", c.S("location")), target = Path.Combine(loc, c.S("folder")), baseDir = Path.Combine(loc, c.S("base"));
         string relDir = Path.Combine("MISSIONS", c.S("location"), c.S("folder"));
-        if (!x.Rows.Any(r => r[0] == "dir" && r[1] == relDir)) x.Row("dir", relDir);
         using (var z = ZipFile.OpenRead(c.Parts[0]))
         {
+            // ---- preflight: everything taken from the player's game is found BEFORE anything is changed
+            prog(0.01, "Checking your game files");
+            var missing = new List<string>();
+            foreach (var kv in c.Map("copies"))
+                if (!File.Exists(Path.Combine(g, kv.Value))) missing.Add(kv.Value + " (copied into the mission as " + kv.Key + ")");
+            var built = new Dictionary<string, byte[]>(); var other = new Dictionary<string, int>();
+            int pi = 0; var recsAll = Recipes(c).Where(r => (string)r["kind"] == "mission").ToList();
+            foreach (var r in recsAll)
+            {
+                var rel = (string)r["rel"]; int oth;
+                try { built[rel] = BuildRes(r, Entry(z, (string)r["bin"]), gr => x.Orig(gr), out oth); other[rel] = oth; }
+                catch (Exception e) { missing.Add(e.Message); }
+                prog(0.01 + 0.3 * (++pi) / recsAll.Count, rel);
+            }
+            if (missing.Count > 0)
+                throw new Exception("Your IGI 2 lacks game data this mission is built from (nothing was changed):\n- " + string.Join("\n- ", missing.Take(12)) +
+                                    (missing.Count > 12 ? "\n- ... " + (missing.Count - 12) + " more" : ""));
+            if (!x.Rows.Any(r => r[0] == "dir" && r[1] == relDir)) x.Row("dir", relDir);
             // old Sandstorm mid-mission saves break a new build: moved into the backup folder
             var sg = Path.Combine(g, "savegames");
             if (Directory.Exists(sg))
@@ -526,7 +630,7 @@ static class Installer
                     var parts = Path.GetFileNameWithoutExtension(f).Split('-');
                     if (parts.Length == 4 && parts[2] == c.S("mission_id")) { var d = Path.Combine(x.Bk, "old_saves"); Directory.CreateDirectory(d); File.Move(f, Path.Combine(d, Path.GetFileName(f))); }
                 }
-            prog(0.02, "Mission folder");
+            prog(0.32, "Mission folder");
             if (Directory.Exists(target)) Directory.Delete(target, true);
             foreach (var f in Directory.GetFiles(baseDir, "*", SearchOption.AllDirectories))
             {
@@ -546,40 +650,36 @@ static class Installer
                 var d = Path.Combine(target, f.Replace('/', '\\')); Directory.CreateDirectory(Path.GetDirectoryName(d));
                 if (File.Exists(d)) File.Delete(d);
                 z.GetEntry("mission/" + f).ExtractToFile(d);
-                prog(0.05 + 0.75 * (++i) / files.Count, f);
+                prog(0.35 + 0.35 * (++i) / files.Count, f);
             }
-            // mission files that are the player's own game files (copied, not shipped)
             foreach (var kv in c.Map("copies"))
             {
                 var d = Path.Combine(target, kv.Key.Replace('/', '\\')); Directory.CreateDirectory(Path.GetDirectoryName(d));
                 if (File.Exists(d)) File.Delete(d);
                 File.Copy(Path.Combine(g, kv.Value), d);
             }
-            // the .res files are rebuilt from the player's own game files + our chunks (recipes)
-            var recs = Recipes(c);
-            int ri = 0;
-            foreach (var r in recs.Where(r => (string)r["kind"] == "mission"))
+            foreach (var kv in built)
             {
-                var rel = (string)r["rel"];
-                var d = Path.Combine(target, rel.Replace('/', '\\'));
-                Directory.CreateDirectory(Path.GetDirectoryName(d));
-                var data = BuildRes(r, Entry(z, (string)r["bin"]), gr => x.Orig(gr));
+                var d = Path.Combine(target, kv.Key.Replace('/', '\\')); Directory.CreateDirectory(Path.GetDirectoryName(d));
                 if (File.Exists(d)) File.Delete(d);
-                File.WriteAllBytes(d, data);
-                prog(0.6 + 0.2 * (++ri) / recs.Count, rel);
+                File.WriteAllBytes(d, kv.Value);
             }
-            prog(0.82, "Texts and pictures");
-            foreach (var kv in c.Map("shared"))
-            {
-                var r = recs.FirstOrDefault(q => (string)q["kind"] == "shared" && ((string)q["rel"]).Replace('/', '\\').Equals(kv.Key, StringComparison.OrdinalIgnoreCase));
-                if (r != null) { x.Backup(kv.Key); x.Put(BuildRes(r, Entry(z, (string)r["bin"]), gr => x.Orig(gr)), kv.Key); }
-                else x.Put(Entry(z, "shared/" + kv.Key.Replace('\\', '/')), kv.Key);
-            }
+            prog(0.75, "Texts and pictures");
+            LangAdd(x, c);                                    // our texts into EVERY language folder's files (English text)
+            SpriteAdd(x, c, z);                               // the mission picture into missionsprites.res
             PatchLoading(x, z, c.List("loading"));
             foreach (var lang in new[] { "english", "USA" }) x.Put(Entry(z, "shared/intro/congratulations.jpg"), Path.Combine("SCREENS", "intro", lang, "congratulations.jpg"));
-            x.Put(Entry(z, "shared/igi2.qvm"), Path.Combine("MISSIONS", "igi2.qvm"));
+            // mission list: the player's own list + Sandstorm at the end (any version's list)
+            var lst = Path.Combine("MISSIONS", "igi2.qvm");
+            x.Backup(lst);
+            var lraw = File.ReadAllBytes(x.Orig(lst));
+            var ids = Qvm.ListIds(lraw);
+            if (ids == null || ids.Count == 0) throw new Exception("MISSIONS\\igi2.qvm (the mission list) could not be read.");
+            int mid = (int)c.L("mission_id");
+            ids.Remove(mid); ids.Add(mid);
+            x.Put(Qvm.ListEncode(ids, lraw), lst);
             // profile: Sandstorm (last in the list) unlocked
-            int last = (int)c.L("n_ids") - 1;
+            int last = ids.Count - 1;
             var cfg = Path.Combine(g, "config.qvm");
             if (File.Exists(cfg))
             {
@@ -589,37 +689,223 @@ static class Installer
                 File.WriteAllBytes(cfg, Qvm.SetProgress(File.ReadAllBytes(cfg), (k, cur) => last));
                 x.Row("config", string.Join(",", basep.Select(kv => kv.Key + "=" + kv.Value)), U.Md5(cfg));
             }
-            else x.Put(Entry(z, "shared/config_default.qvm"), "config.qvm");
-            prog(0.9, "Game exe and display");
-            PatchExe(x, c);
-            // our ASI loader only where none is there (a patched game brings its own), then the HD menu add-on (when shipped)
+            else x.Put(Qvm.SetProgress(Entry(z, "shared/config_default.qvm"), (k, cur) => last), "config.qvm");
+            prog(0.88, "Game exe and display");
+            HandleExe(x, c, o);
             if (z.GetEntry("exe/version.dll") != null && !File.Exists(Path.Combine(g, "version.dll"))) x.Put(Entry(z, "exe/version.dll"), "version.dll");
             if (z.GetEntry("exe/IGI2HD.asi") != null) x.Put(Entry(z, "exe/IGI2HD.asi"), "IGI2HD.asi");
             foreach (var f in c.List("hd")) x.Put(Entry(z, "exe/hd/" + f), Path.Combine("hd", f));
-            EditConf(x, c.S("extra_res"));
-            if (z.GetEntry("display/IGI2_Display_Setup.cmd") != null) x.Put(Entry(z, "display/IGI2_Display_Setup.cmd"), "IGI2_Display_Setup.cmd");
+            bool dgv = File.Exists(Path.Combine(g, "dgVoodoo.conf"));
+            if (dgv)
+            {
+                EditConf(x, c.S("extra_res"));
+                if (z.GetEntry("display/IGI2_Display_Setup.cmd") != null) x.Put(Entry(z, "display/IGI2_Display_Setup.cmd"), "IGI2_Display_Setup.cmd");
+            }
+            else Warnings.Add("No dgVoodoo.conf in this game folder: the display options and the extra resolutions were skipped (the game keeps its own video settings).");
             x.Put(Entry(z, "Sandstorm - README.txt"), "Sandstorm - README.txt");
+            if (dgv)
+            {
+                foreach (var f in new[] { "dgVoodoo.conf.display-backup", "config.qvm.display-backup" }) x.Backup(f);   // the display script's own backups: removed again on uninstall
+                U.RunDisplay(g, o.Display);
+                U.SharpLook(c, g, o.Display);
+            }
+            string un = Path.Combine(x.Bk, "Uninstall.exe");
+            File.Copy(Application.ExecutablePath, un, true);
+            x.Row("meta", c.S("key"), c.S("product"));
+            if (o.Shortcut) { var l = U.DesktopLnk("IGI 2 - Operation Sandstorm"); U.Shortcut(l, Path.Combine(g, "igi2.exe"), g, Path.Combine(g, "igi2.exe")); x.Row("lnk", l); }
+            U.Register(c, g, un, c.L("size"));
+            // ---- verify OUR files: shipped files, and rebuilt packs whose every chunk matched (the rest of the folder is the player's own map)
+            prog(0.96, "Checking files");
+            bool patched = File.Exists(Path.Combine(g, c.S("patch_mark")));
+            var tree = c.Map(patched ? "tree_patch" : "tree");
+            int bad = 0, nck = 0;
+            foreach (var f in files.Concat(built.Keys.Where(k => other[k] == 0 || patched)))
+            {
+                string want; if (!tree.TryGetValue(f, out want)) continue;
+                nck++; var p = Path.Combine(target, f.Replace('/', '\\'));
+                if (!File.Exists(p) || U.Md5(p) != want) bad++;
+            }
+            int rebuiltOther = other.Count(kv => kv.Value > 0);
+            x.Row("base", patched ? "patched" : "other-or-gog");
+            x.Row("verify", bad.ToString(), nck.ToString(), rebuiltOther.ToString());
+            if (bad > 0) Warnings.Add(bad + " of " + nck + " mission files differ from the build - please report it to 1QDeath (Discord).");
+            if (rebuiltOther > 0 && !patched) Warnings.Add(rebuiltOther + " texture / sound packs were rebuilt from your game's own versions of the stock assets (your copy differs from GOG): the mission uses your game's art there.");
+            foreach (var w in Warnings) { Console.WriteLine("WARNING: " + w); x.Row("warn", w.Replace("|", "/").Replace("\n", " ")); }
+            prog(1, Warnings.Count == 0 ? "Done" : "Done (with notes)");
         }
-        foreach (var f in new[] { "dgVoodoo.conf.display-backup", "config.qvm.display-backup" }) x.Backup(f);   // the display script's own backups: removed again on uninstall
-        U.RunDisplay(g, o.Display);
-        U.SharpLook(c, g, o.Display);
-        string un = Path.Combine(x.Bk, "Uninstall.exe");
-        File.Copy(Application.ExecutablePath, un, true);
-        x.Row("meta", c.S("key"), c.S("product"));
-        if (o.Shortcut) { var l = U.DesktopLnk("IGI 2 - Operation Sandstorm"); U.Shortcut(l, Path.Combine(g, "igi2.exe"), g, Path.Combine(g, "igi2.exe")); x.Row("lnk", l); }
-        U.Register(c, g, un, c.L("size"));
-        prog(0.96, "Checking files");
-        int bad = 0;
-        bool patched = File.Exists(Path.Combine(g, c.S("patch_mark")));
-        x.Row("base", patched ? "patched" : "gog");
-        foreach (var kv in c.Map(patched ? "tree_patch" : "tree"))
+    }
+
+    // ---- the exe, by CONTENT: any igi2.exe of the GOG build (GOG, widescreen patch, community 1.3 exes ...) where every byte our patch
+    //      replaces still holds the GOG original gets the fixes (its own other bytes - strings, tags, resources - stay); otherwise the
+    //      mission is installed without them and a clear note says why
+    static void HandleExe(Ctx x, Payload c, Options o)
+    {
+        var exe = Path.Combine(x.G, "igi2.exe");
+        var src = File.ReadAllBytes(x.Files.ContainsKey("igi2.exe") ? x.Orig("igi2.exe") : exe);
+        string sha = Sha(src);
+        string why = null;
+        var outp = o.ForceUnknownExe ? null : ApplyExePatch(src, (Dictionary<string, object>)c.J["exe_patch"], out why);
+        if (o.ForceUnknownExe) why = "test switch /unknownexe";
+        if (outp != null)
         {
-            var p = Path.Combine(target, kv.Key.Replace('/', '\\'));
-            if (!File.Exists(p) || U.Md5(p) != kv.Value) bad++;
+            var p = (Dictionary<string, object>)c.J["exe_patch"];
+            if (c.List("exe_orig_sha1").Contains(sha) && Sha(outp) != (string)p["result_sha1"]) throw new Exception("patched igi2.exe check failed");
+            x.Backup("igi2.exe");
+            x.Put(outp, "igi2.exe");
+            x.Row("exe", "patched", sha, src.Length.ToString(), Sha(outp));
+            return;
         }
-        x.Row("verify", bad.ToString());
-        if (bad > 0) Console.Error.WriteLine("verify: " + bad + " files differ");
-        prog(1, bad == 0 ? "Done" : "Done (" + bad + " mission files differ from the expected game files)");
+        var prot = Protection(src);
+        x.Row("exe", "unknown", sha, src.Length.ToString(), prot, why.Replace("|", "/"));
+        Warnings.Add("Your igi2.exe cannot take the mission's engine fixes (" + why + "; sha1 " + sha + ", " + src.Length + " bytes" + (prot.Length > 0 ? ", copy protection: " + prot : "") +
+                     "). The mission is installed WITHOUT them, so you lose: the fix for the freeze after a mission, Alt+Enter handling, " +
+                     "the taskbar / focus fix, the DPI and resolution handling, the weapon reload / animation speed fix and the credits page. " +
+                     "Send this hash to 1QDeath (Discord) to get your version supported.");
+    }
+
+    static string Sha(byte[] b) { using (var s1 = SHA1.Create()) return BitConverter.ToString(s1.ComputeHash(b)).Replace("-", "").ToLower(); }
+    static int I(Dictionary<string, object> p, string k) { return Convert.ToInt32(p[k]); }
+
+    static uint PeChecksum(byte[] b, int csOff)
+    {
+        ulong s = 0; int n = b.Length / 2 * 2;
+        for (int i = 0; i < n; i += 2)
+        {
+            if (i >= csOff && i < csOff + 4) continue;
+            s += (ulong)(b[i] | (b[i + 1] << 8)); s = (s & 0xffff) + (s >> 16);
+        }
+        if ((b.Length & 1) != 0) { s += b[b.Length - 1]; s = (s & 0xffff) + (s >> 16); }
+        s = (s & 0xffff) + (s >> 16);
+        return (uint)((s + (ulong)b.Length) & 0xffffffff);
+    }
+
+    // twin of recipe.apply_exe_patch2 (the build checks the Python one on GOG, GOG + widescreen patch and the community 1.3 exe)
+    static byte[] ApplyExePatch(byte[] src, Dictionary<string, object> p, out string why)
+    {
+        why = null;
+        if (src.Length != I(p, "gog_len")) { why = "size " + src.Length + " differs from the GOG build (" + I(p, "gog_len") + ")"; return null; }
+        int pe = BitConverter.ToInt32(src, 0x3c);
+        if (pe != I(p, "pe") || BitConverter.ToUInt16(src, pe + 20) != I(p, "opt") || BitConverter.ToUInt16(src, pe + 6) != I(p, "ns_gog")) { why = "the PE header layout differs from the GOG build"; return null; }
+        var rec = new HashSet<int>();
+        foreach (var f in new[] { new[] { I(p, "f_ns"), 2 }, new[] { I(p, "f_char"), 2 }, new[] { I(p, "f_soi"), 4 }, new[] { I(p, "f_cs"), 4 } })
+            for (int k = 0; k < f[1]; k++) rec.Add(f[0] + k);
+        var slots = (System.Collections.ArrayList)p["slots"]; int s0 = Convert.ToInt32(slots[0]), s1 = Convert.ToInt32(slots[1]);
+        var tail = (string)p["tail"];
+        var b = new byte[src.Length + tail.Length / 2];
+        Array.Copy(src, b, src.Length);
+        foreach (System.Collections.ArrayList run in (System.Collections.ArrayList)p["runs"])
+        {
+            int off = Convert.ToInt32(run[0]); string nh = (string)run[1], oh = (string)run[2];
+            for (int k = 0; k < nh.Length / 2; k++)
+            {
+                int o = off + k; byte nb = Convert.ToByte(nh.Substring(2 * k, 2), 16), ob = Convert.ToByte(oh.Substring(2 * k, 2), 16);
+                if (!rec.Contains(o))
+                {
+                    if (o >= s0 && o < s1) { if (src[o] != ob && src[o] != 0) { why = string.Format("section table slot 0x{0:x} is not free", o); return null; } }
+                    else if (src[o] != ob) { why = string.Format("byte 0x{0:x} is 0x{1:x2}, the patch expects 0x{2:x2}", o, src[o], ob); return null; }
+                }
+                b[o] = nb;
+            }
+        }
+        for (int k = 0; k < tail.Length / 2; k++) b[src.Length + k] = Convert.ToByte(tail.Substring(2 * k, 2), 16);
+        Array.Copy(BitConverter.GetBytes((ushort)I(p, "ns_new")), 0, b, I(p, "f_ns"), 2);
+        Array.Copy(BitConverter.GetBytes((ushort)(BitConverter.ToUInt16(src, I(p, "f_char")) | I(p, "laa"))), 0, b, I(p, "f_char"), 2);
+        uint salign = BitConverter.ToUInt32(b, I(p, "f_salign")); ulong top = 0; int sec0 = pe + 24 + I(p, "opt");
+        for (int k = 0; k < I(p, "ns_new"); k++) { uint vs = BitConverter.ToUInt32(b, sec0 + 40 * k + 8), va = BitConverter.ToUInt32(b, sec0 + 40 * k + 12); top = Math.Max(top, (ulong)va + vs); }
+        Array.Copy(BitConverter.GetBytes((uint)((top + salign - 1) / salign * salign)), 0, b, I(p, "f_soi"), 4);
+        uint cs = BitConverter.ToUInt32(src, I(p, "f_cs"));
+        bool knownCs = false; foreach (var q in (System.Collections.ArrayList)p["known_cs"]) if (Convert.ToUInt32(q) == cs) knownCs = true;
+        Array.Copy(BitConverter.GetBytes(knownCs ? Convert.ToUInt32(p["result_cs"]) : PeChecksum(b, I(p, "f_cs"))), 0, b, I(p, "f_cs"), 4);
+        return b;
+    }
+
+    static string Protection(byte[] b)
+    {
+        try
+        {
+            int pe = BitConverter.ToInt32(b, 0x3c); int ns = BitConverter.ToUInt16(b, pe + 6); int opt = BitConverter.ToUInt16(b, pe + 20);
+            var found = new List<string>();
+            for (int k = 0; k < ns; k++)
+            {
+                var name = Encoding.ASCII.GetString(b, pe + 24 + opt + 40 * k, 8).TrimEnd('\0').ToLowerInvariant();
+                if (name.StartsWith("stxt") || name == ".txt2" || name == ".txt") found.Add("SafeDisc (" + name + ")");
+                if (name.Contains("securom") || name == ".dsstext") found.Add("SecuROM (" + name + ")");
+            }
+            return string.Join(", ", found.Distinct());
+        }
+        catch { return ""; }
+    }
+
+    // ---- structural edits that work on any version's files
+    static bool PadOf(byte[] raw, List<Ilff.Chunk> ch, uint al, byte[] form) { return Ilff.Write(ch, al, form, true).Length == raw.Length; }
+
+    static void AddNamed(List<Ilff.Chunk> ch, IEnumerable<KeyValuePair<string, byte[]>> entries, string tag, uint al)
+    {
+        var names = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        int pathIdx = -1;
+        for (int k = 0; k < ch.Count; k++)
+        {
+            var t = Encoding.ASCII.GetString(ch[k].Tag);
+            if (t == "NAME") names[Ilff.Name(ch[k])] = k;
+            if (t == "PATH" && pathIdx < 0) pathIdx = k;
+        }
+        var add = new List<Ilff.Chunk>(); var newNames = new List<string>();
+        foreach (var e in entries)
+        {
+            int k;
+            if (names.TryGetValue(e.Key, out k) && k + 1 < ch.Count) { ch[k + 1].Data = e.Value; continue; }
+            add.Add(new Ilff.Chunk { Tag = Encoding.ASCII.GetBytes("NAME"), Data = L1.GetBytes(e.Key + "\0"), Al = 4 });
+            add.Add(new Ilff.Chunk { Tag = Encoding.ASCII.GetBytes(tag), Data = e.Value, Al = al });
+            newNames.Add(e.Key);
+        }
+        if (pathIdx >= 0)
+        {
+            var lst = L1.GetString(ch[pathIdx].Data).TrimEnd('\0');
+            foreach (var nm in newNames) lst += ";" + nm;
+            ch[pathIdx].Data = L1.GetBytes(lst + "\0");
+            ch.InsertRange(Math.Max(0, pathIdx - 1), add);
+        }
+        else ch.AddRange(add);
+    }
+
+    static void LangAdd(Ctx x, Payload c)
+    {
+        object o; if (!c.J.TryGetValue("lang", out o)) return;
+        var lang = (Dictionary<string, object>)o;
+        foreach (var dir in Directory.GetDirectories(Path.Combine(x.G, "LANGUAGE")))
+        {
+            var ln = Path.GetFileName(dir);
+            foreach (var kv in lang)
+            {
+                var rel = Path.Combine("LANGUAGE", ln, kv.Key + ".res");
+                if (!File.Exists(Path.Combine(x.G, rel))) continue;
+                byte[] raw = File.ReadAllBytes(x.Files.ContainsKey(rel) ? x.Orig(rel) : Path.Combine(x.G, rel));
+                List<Ilff.Chunk> ch; uint al; byte[] form;
+                try { ch = Ilff.Read(raw, out al, out form); }
+                catch (Exception e) { Warnings.Add("Language file " + rel + " could not be read (" + e.Message + "): the mission texts are missing in that language."); continue; }
+                bool pad = PadOf(raw, ch, al, form);
+                // the name prefix this file uses (LOCAL:<language>/...), taken from its own entries
+                string prefix = "LOCAL:" + ln + "/";
+                foreach (var q in ch) if (Encoding.ASCII.GetString(q.Tag) == "NAME") { var nm = Ilff.Name(q); int sl = nm.IndexOf('/'); if (nm.StartsWith("LOCAL:") && sl > 0) { prefix = nm.Substring(0, sl + 1); break; } }
+                var entries = ((Dictionary<string, object>)kv.Value).Select(q => new KeyValuePair<string, byte[]>(prefix + q.Key, L1.GetBytes((string)q.Value + "\0"))).ToList();
+                x.Backup(rel);
+                AddNamed(ch, entries, "CSTR", 4);
+                x.Put(Ilff.Write(ch, al, form, pad), rel);
+            }
+        }
+    }
+
+    static void SpriteAdd(Ctx x, Payload c, ZipArchive z)
+    {
+        var rel = Path.Combine("MENUSYSTEM", "missionsprites.res");
+        if (!File.Exists(Path.Combine(x.G, rel))) { Warnings.Add("MENUSYSTEM\\missionsprites.res not found: the mission picture in the menu is missing."); return; }
+        var raw = File.ReadAllBytes(x.Files.ContainsKey(rel) ? x.Orig(rel) : Path.Combine(x.G, rel));
+        uint al; byte[] form; var ch = Ilff.Read(raw, out al, out form);
+        bool pad = PadOf(raw, ch, al, form);
+        var entries = c.Map("sprites").Select(kv => new KeyValuePair<string, byte[]>(kv.Key, Entry(z, kv.Value))).ToList();
+        x.Backup(rel);
+        AddNamed(ch, entries, "BODY", 4);
+        x.Put(Ilff.Write(ch, al, form, pad), rel);
     }
 
     static List<Dictionary<string, object>> Recipes(Payload c)
@@ -630,64 +916,66 @@ static class Installer
     }
 
     // a recipe: every chunk is either a reference (game file "g" + chunk name "n", GOG md5 "m") or ours (offset "o" / length "l" in the blob)
-    static byte[] BuildRes(Dictionary<string, object> r, byte[] blob, Func<string, string> rootOf)
+    static byte[] BuildRes(Dictionary<string, object> r, byte[] blob, Func<string, string> rootOf, out int other)
     {
         var rec = (Dictionary<string, object>)r["rec"];
         var cache = new Dictionary<string, Dictionary<string, byte[]>>(StringComparer.OrdinalIgnoreCase);
-        var ch = new List<Ilff.Chunk>(); int other = 0;
-        foreach (Dictionary<string, object> c in (System.Collections.ArrayList)rec["chunks"])
+        Func<string, Dictionary<string, byte[]>> load = rel =>
         {
-            byte[] d;
-            if (c.ContainsKey("g"))
+            Dictionary<string, byte[]> byName;
+            if (cache.TryGetValue(rel, out byName)) return byName;
+            byName = null;
+            var path = rootOf(rel);
+            if (File.Exists(path))
             {
-                var rel = (string)c["g"];
-                Dictionary<string, byte[]> byName;
-                if (!cache.TryGetValue(rel, out byName))
+                try
                 {
-                    var path = rootOf(rel);
-                    if (!File.Exists(path)) throw new Exception("game file missing: " + rel);
                     uint a0; byte[] f0; var src = Ilff.Read(File.ReadAllBytes(path), out a0, out f0);
                     byName = new Dictionary<string, byte[]>(StringComparer.OrdinalIgnoreCase);
                     for (int i = 0; i + 1 < src.Count; i++)
                         if (Encoding.ASCII.GetString(src[i].Tag) == "NAME") byName[Ilff.Name(src[i])] = src[i + 1].Data;
-                    cache[rel] = byName;
                 }
-                if (!byName.TryGetValue((string)c["n"], out d)) throw new Exception("game file " + rel + " has no " + c["n"]);
-                using (var m = MD5.Create()) if (BitConverter.ToString(m.ComputeHash(d)).Replace("-", "").ToLower() != (string)c["m"]) other++;
+                catch { byName = null; }
+            }
+            cache[rel] = byName; return byName;
+        };
+        var ch = new List<Ilff.Chunk>(); other = 0;
+        foreach (Dictionary<string, object> c in (System.Collections.ArrayList)rec["chunks"])
+        {
+            byte[] d = null;
+            if (c.ContainsKey("g"))
+            {
+                // candidates: the source the build used, then every other place in the GOG game with the same bytes
+                var cands = new List<string[]> { new[] { (string)c["g"], (string)c["n"] } };
+                object alt; if (c.TryGetValue("alt", out alt) && alt is System.Collections.ArrayList)
+                    foreach (System.Collections.ArrayList q in (System.Collections.ArrayList)alt) cands.Add(new[] { (string)q[0], (string)q[1] });
+                var want = (string)c["m"];
+                foreach (var cd in cands)                         // pass 1: the same bytes anywhere
+                {
+                    var bn = load(cd[0]); byte[] v;
+                    if (bn != null && bn.TryGetValue(cd[1], out v) && Hex(v) == want) { d = v; break; }
+                }
+                if (d == null)
+                    foreach (var cd in cands)                     // pass 2: the same asset name (your version's art)
+                    {
+                        var bn = load(cd[0]); byte[] v;
+                        if (bn != null && bn.TryGetValue(cd[1], out v)) { d = v; other++; break; }
+                    }
+                if (d == null)
+                    throw new Exception("game file " + c["g"] + " has no chunk " + c["n"] + (cands.Count > 1 ? " (nor any of " + (cands.Count - 1) + " other places)" : "") + " - needed for " + r["rel"]);
             }
             else
             {
                 int o = Convert.ToInt32(c["o"]), l = Convert.ToInt32(c["l"]);
                 d = new byte[l]; Array.Copy(blob, o, d, 0, l);
             }
-            ch.Add(new Ilff.Chunk { Tag = Encoding.GetEncoding(28591).GetBytes((string)c["t"]), Data = d, Al = Convert.ToUInt32(c["a"]) });
+            ch.Add(new Ilff.Chunk { Tag = L1.GetBytes((string)c["t"]), Data = d, Al = Convert.ToUInt32(c["a"]) });
         }
-        if (other > 0) Log.Write(r["rel"] + ": " + other + " chunks from a patched game");
-        return Ilff.Write(ch, Convert.ToUInt32(rec["align"]), Encoding.GetEncoding(28591).GetBytes((string)rec["form"]), (bool)rec["pad_last"]);
+        if (other > 0) Log.Write(r["rel"] + ": " + other + " chunks from a different game version");
+        return Ilff.Write(ch, Convert.ToUInt32(rec["align"]), L1.GetBytes((string)rec["form"]), (bool)rec["pad_last"]);
     }
 
-    // igi2.exe is not shipped: the player's own exe (GOG, or GOG with the widescreen patch: 4 header bytes apart) gets our byte patches
-    static void PatchExe(Ctx x, Payload c)
-    {
-        var p = (Dictionary<string, object>)c.J["exe_patch"];
-        x.Backup("igi2.exe");
-        var src = File.ReadAllBytes(x.Orig("igi2.exe"));
-        string sha; using (var s1 = SHA1.Create()) sha = BitConverter.ToString(s1.ComputeHash(src)).Replace("-", "").ToLower();
-        if (!c.List("exe_orig_sha1").Contains(sha) && sha != (string)p["result_sha1"]) throw new Exception("igi2.exe is not a GOG exe Setup knows (sha1 " + sha.Substring(0, 8) + ")");
-        var size = Convert.ToInt32(p["size"]);
-        var b = new byte[size];
-        Array.Copy(src, b, Math.Min(src.Length, size));
-        foreach (System.Collections.ArrayList run in (System.Collections.ArrayList)p["runs"])
-        {
-            int off = Convert.ToInt32(run[0]); var hex = (string)run[1];
-            for (int i = 0; i < hex.Length / 2; i++) b[off + i] = Convert.ToByte(hex.Substring(2 * i, 2), 16);
-        }
-        var tail = (string)p["tail"]; int t0 = size - tail.Length / 2;
-        for (int i = 0; i < tail.Length / 2; i++) b[t0 + i] = Convert.ToByte(tail.Substring(2 * i, 2), 16);
-        using (var s1 = SHA1.Create()) sha = BitConverter.ToString(s1.ComputeHash(b)).Replace("-", "").ToLower();
-        if (sha != (string)p["result_sha1"]) throw new Exception("patched igi2.exe check failed");
-        x.Put(b, "igi2.exe");
-    }
+    static string Hex(byte[] d) { using (var m = MD5.Create()) return BitConverter.ToString(m.ComputeHash(d)).Replace("-", "").ToLower(); }
 
     static void PatchLoading(Ctx x, ZipArchive z, List<string> pics)
     {
@@ -714,7 +1002,7 @@ static class Installer
 
     static void EditConf(Ctx x, string extra)
     {
-        string rel = "dgVoodoo.conf"; x.Backup(rel);
+        string rel = "dgVoodoo.conf"; if (!File.Exists(Path.Combine(x.G, rel))) return; x.Backup(rel);
         var enc = Encoding.GetEncoding(28591); var p = Path.Combine(x.G, rel);
         var t = enc.GetString(File.ReadAllBytes(p));
         var m = Regex.Match(t, @"(?m)^(ExtraEnumeratedResolutions[ \t]*=)([^\r\n]*)");
@@ -736,7 +1024,7 @@ static class Uninstaller
         bool full = File.Exists(Path.Combine(here, "uninstall.dat"));
         bool addon = File.Exists(Path.Combine(here, "manifest.txt"));
         if (!full && !addon) { Msg(silent, "Nothing to uninstall here."); return 1; }
-        if (U.GameRunning()) { Msg(silent, "IGI 2 is running - close the game first."); return 2; }
+        if (U.GameRunning(addon ? Path.GetDirectoryName(here) : here)) { Msg(silent, "IGI 2 is running - close the game first."); return 2; }
         string product = "Operation Sandstorm";
         if (!silent && MessageBox.Show("Remove " + product + "?", product, MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes) return 0;
         string selfDir = here;
@@ -812,33 +1100,27 @@ static class Uninstaller
 // ------------------------------------------------------------------------------------------------ wizard
 class Wizard : Form
 {
+    // plug and play: Welcome (picture + one line) -> folder (auto-detected; display choice as one small dropdown) -> installing -> Finish (Play)
     Payload C; Options O = new Options(); int page = 0;
-    Panel side, body; Label title, sub; Button back, next, cancel;
-    TextBox dirBox; CheckBox shortcut, launch; RadioButton rSharp, rLow, rVery; ProgressBar bar; Label progLabel, finishLabel;
-    bool installing, finished;
+    Label title; Panel body; Button back, next, cancel;
+    TextBox dirBox; ComboBox displayBox; CheckBox launch; ProgressBar bar; Label progLabel;
+    bool installing;
 
     public Wizard(Payload c)
     {
         C = c;
         O.Dir = c.Full ? c.S("default_dir") : U.FindGog(c.S("gog_id"));
         Text = c.S("product") + " Setup";
-        ClientSize = new Size(640, 480); FormBorderStyle = FormBorderStyle.FixedDialog; MaximizeBox = false; StartPosition = FormStartPosition.CenterScreen;
-        Font = new Font("Segoe UI", 9f); BackColor = Color.White;
+        ClientSize = new Size(560, 400); FormBorderStyle = FormBorderStyle.FixedDialog; MaximizeBox = false; StartPosition = FormStartPosition.CenterScreen;
+        Font = new Font("Segoe UI", 9.5f); BackColor = Color.White;
         try { Icon = Icon.ExtractAssociatedIcon(Application.ExecutablePath); } catch { }
-        // header art (Jones in the sandstorm, Made by 1QDeath) across the top of every page
-        side = new Panel { Left = 0, Top = 0, Width = 640, Height = 85, BackColor = Color.FromArgb(40, 24, 10) };
-        side.Controls.Add(new PictureBox { Left = 0, Top = 0, Width = 640, Height = 85, SizeMode = PictureBoxSizeMode.StretchImage, Image = Payload.Art("header.png") ?? Payload.Avatar() });
-        Controls.Add(side);
-        title = new Label { Left = 18, Top = 93, Width = 600, Height = 30, Font = new Font("Segoe UI", 14f, FontStyle.Bold) };
-        sub = new Label { Left = 20, Top = 124, Width = 600, Height = 28, ForeColor = Color.DimGray };
-        Controls.Add(title); Controls.Add(sub);
-        body = new Panel { Left = 20, Top = 154, Width = 600, Height = 270 };
-        Controls.Add(body);
-        Controls.Add(new Label { Left = 0, Top = 430, Width = 640, Height = 1, BorderStyle = BorderStyle.Fixed3D });
-        Controls.Add(new Label { Left = 12, Top = 447, Width = 300, Height = 20, ForeColor = Color.Gray, Text = c.S("made_by") + "  |  " + c.S("discord") });
-        back = new Button { Text = "< Back", Left = 375, Top = 443, Width = 80 };
-        next = new Button { Text = "Next >", Left = 460, Top = 443, Width = 80 };
-        cancel = new Button { Text = "Cancel", Left = 550, Top = 443, Width = 80 };
+        title = new Label { Left = 20, Top = 16, Width = 520, Height = 30, Font = new Font("Segoe UI", 14f, FontStyle.Bold) };
+        body = new Panel { Left = 20, Top = 52, Width = 520, Height = 290 };
+        Controls.Add(title); Controls.Add(body);
+        Controls.Add(new Label { Left = 0, Top = 350, Width = 560, Height = 1, BorderStyle = BorderStyle.Fixed3D });
+        back = new Button { Text = "< Back", Left = 290, Top = 362, Width = 80 };
+        next = new Button { Text = "Next >", Left = 375, Top = 362, Width = 80 };
+        cancel = new Button { Text = "Cancel", Left = 465, Top = 362, Width = 80 };
         back.Click += (s, e) => Show(page - 1);
         next.Click += (s, e) => Next();
         cancel.Click += (s, e) => { if (!installing) Close(); };
@@ -851,60 +1133,51 @@ class Wizard : Form
     void Show(int p)
     {
         page = p; body.Controls.Clear();
-        back.Enabled = p > 0 && p < 3; next.Enabled = true; cancel.Enabled = p < 4;
-        next.Text = p == 2 ? "Install" : p == 4 ? "Finish" : "Next >";
+        back.Visible = p == 1; next.Enabled = true; cancel.Enabled = p < 3;
+        next.Text = p == 1 ? "Install" : p == 3 ? "Finish" : "Next >";
         if (p == 0)
         {
-            title.Text = "Welcome"; sub.Text = C.S("product") + " " + C.S("version");
-            var t = C.S("welcome") + "\n\n" + C.S("made_by") + "   -   " + C.S("discord");
-            if (C.S("thanks").Length > 0) t += "\n\n" + C.S("thanks");
-            t += "\n\nIGI 2: Covert Strike (c) Innerloop Studios / Codemasters.\nClose IGI 2 before you continue.";
-            var art = Payload.Art("welcome.png") ?? Payload.Avatar();
-            body.Controls.Add(new PictureBox { Left = 0, Top = 0, Width = 340, Height = 258, SizeMode = PictureBoxSizeMode.Zoom, Image = art });
-            body.Controls.Add(new Label { Left = 352, Top = 2, Width = 248, Height = 262, Text = t });
+            title.Text = ""; title.Height = 0; body.Top = 10; body.Height = 335;
+            body.Controls.Add(new PictureBox { Left = 0, Top = 0, Width = 520, Height = 290, SizeMode = PictureBoxSizeMode.Zoom, Image = Payload.Art("welcome.png") ?? Payload.Avatar() });
+            body.Controls.Add(new Label { Left = 0, Top = 300, Width = 520, Height = 28, TextAlign = ContentAlignment.MiddleCenter, Font = new Font("Segoe UI", 11f),
+                                          Text = "Operation Sandstorm - a new IGI 2 mission by 1QDeath" });
+            return;
         }
-        else if (p == 1)
+        title.Height = 30; body.Top = 52; body.Height = 290;
+        if (p == 1)
         {
-            title.Text = C.Full ? "Install location" : "Your IGI 2 folder";
-            sub.Text = C.Full ? "The game will be installed into this folder." : "Choose the folder of your GOG IGI 2 (the one with igi2.exe).";
-            dirBox = new TextBox { Left = 0, Top = 20, Width = 320, Text = O.Dir };
-            var br = new Button { Left = 330, Top = 18, Width = 85, Text = "Browse..." };
+            title.Text = C.Full ? "Where to install" : "Your IGI 2 folder";
+            body.Controls.Add(new Label { Left = 0, Top = 0, Width = 520, Height = 22, ForeColor = Color.DimGray,
+                                          Text = C.Full ? "The game is installed into this folder." : "Setup found this IGI 2 folder - change it if needed." });
+            dirBox = new TextBox { Left = 0, Top = 28, Width = 420, Text = O.Dir };
+            var br = new Button { Left = 428, Top = 26, Width = 90, Text = "Browse..." };
             br.Click += (s, e) =>
             {
-                using (var f = new FolderBrowserDialog { SelectedPath = dirBox.Text, Description = sub.Text })
+                using (var f = new FolderBrowserDialog { SelectedPath = dirBox.Text })
                     if (f.ShowDialog(this) == DialogResult.OK) dirBox.Text = C.Full && !U.IsGame(f.SelectedPath) && Directory.EnumerateFileSystemEntries(f.SelectedPath).Any()
-                        ? Path.Combine(f.SelectedPath, "IGI 2 Operation Sandstorm") : f.SelectedPath;
+                        ? Path.Combine(f.SelectedPath, "IGI2 Sandstorm") : f.SelectedPath;
             };
             body.Controls.Add(dirBox); body.Controls.Add(br);
-            body.Controls.Add(new Label { Left = 0, Top = 60, Width = 415, Height = 60, ForeColor = Color.DimGray,
-                Text = C.Full ? "Space needed: about " + (C.L("size") >> 20) + " MB." : "Every game file Setup changes is backed up first; uninstalling puts it back." });
+            body.Controls.Add(new Label { Left = 0, Top = 74, Width = 60, Height = 22, Text = "Picture:" });
+            displayBox = new ComboBox { Left = 62, Top = 71, Width = 230, DropDownStyle = ComboBoxStyle.DropDownList };
+            displayBox.Items.AddRange(new object[] { "Sharp (recommended)", "Low-end PC", "Very low" });
+            displayBox.SelectedIndex = O.Display == "low" ? 1 : O.Display == "verylow" ? 2 : 0;
+            body.Controls.Add(displayBox);
         }
         else if (p == 2)
         {
-            title.Text = "Options"; sub.Text = "Pick the picture setting (change it later with IGI2_Display_Setup.cmd in the game folder).";
-            shortcut = new CheckBox { Left = 0, Top = 5, Width = 400, Text = "Create a desktop shortcut", Checked = O.Shortcut };
-            var g = new GroupBox { Left = 0, Top = 40, Width = 415, Height = 130, Text = "Display" };
-            rSharp = new RadioButton { Left = 12, Top = 22, Width = 390, Text = "Sharp - the full resolution of your screen (recommended)", Checked = O.Display == "sharp" };
-            rLow = new RadioButton { Left = 12, Top = 55, Width = 390, Text = "Low-end PC - 1280x720, low detail, 60 fps cap", Checked = O.Display == "low" };
-            rVery = new RadioButton { Left = 12, Top = 88, Width = 390, Text = "Very low - 960x540, low detail, 60 fps cap", Checked = O.Display == "verylow" };
-            g.Controls.Add(rSharp); g.Controls.Add(rLow); g.Controls.Add(rVery);
-            body.Controls.Add(shortcut); body.Controls.Add(g);
-        }
-        else if (p == 3)
-        {
-            title.Text = "Installing"; sub.Text = "Please wait while " + C.S("product") + " is installed.";
-            bar = new ProgressBar { Left = 0, Top = 30, Width = 415, Height = 22, Maximum = 1000 };
-            progLabel = new Label { Left = 0, Top = 60, Width = 415, Height = 40, ForeColor = Color.DimGray };
+            title.Text = "Installing";
+            bar = new ProgressBar { Left = 0, Top = 20, Width = 518, Height = 22, Maximum = 1000 };
+            progLabel = new Label { Left = 0, Top = 50, Width = 518, Height = 40, ForeColor = Color.DimGray };
             body.Controls.Add(bar); body.Controls.Add(progLabel);
-            back.Enabled = next.Enabled = false;
+            next.Enabled = false;
         }
         else
         {
-            title.Text = "Finished"; sub.Text = C.S("product") + " is installed.";
-            finishLabel = new Label { Left = 0, Top = 5, Width = 415, Height = 120,
-                Text = "Start IGI 2 and choose Operation Sandstorm in the mission list.\n\nUninstall: Windows Settings > Apps > " + C.S("product") + ".\n\n" + C.S("made_by") + "   -   " + C.S("discord") };
-            launch = new CheckBox { Left = 0, Top = 140, Width = 400, Text = "Launch IGI 2 now", Checked = true };
-            body.Controls.Add(finishLabel); body.Controls.Add(launch);
+            title.Text = "Ready";
+            body.Controls.Add(new Label { Left = 0, Top = 0, Width = 518, Height = 60, Text = "Operation Sandstorm is installed. Start IGI 2 and pick it in the mission list." });
+            launch = new CheckBox { Left = 0, Top = 70, Width = 300, Text = "Play now", Checked = true };
+            body.Controls.Add(launch);
         }
     }
 
@@ -913,18 +1186,15 @@ class Wizard : Form
         if (page == 1)
         {
             O.Dir = dirBox.Text.Trim();
+            O.Display = displayBox.SelectedIndex == 1 ? "low" : displayBox.SelectedIndex == 2 ? "verylow" : "sharp";
             var err = Installer.Check(C, O.Dir);
             if (err != null) { MessageBox.Show(this, err, Text, MessageBoxButtons.OK, MessageBoxIcon.Warning); return; }
+            Show(2); StartInstall(); return;
         }
-        if (page == 2)
-        {
-            O.Shortcut = shortcut.Checked; O.Display = rLow.Checked ? "low" : rVery.Checked ? "verylow" : "sharp";
-            Show(3); StartInstall(); return;
-        }
-        if (page == 4)
+        if (page == 3)
         {
             if (launch.Checked) try { Process.Start(new ProcessStartInfo(Path.Combine(O.Dir, "igi2.exe")) { WorkingDirectory = O.Dir }); } catch { }
-            finished = true; Close(); return;
+            Close(); return;
         }
         Show(page + 1);
     }
@@ -935,16 +1205,17 @@ class Wizard : Form
         var t = new Thread(() =>
         {
             Exception err = null;
-            try
-            {
-                Installer.Run(C, O, (f, s) => BeginInvoke((Action)(() => { bar.Value = Math.Max(0, Math.Min(1000, (int)(f * 1000))); progLabel.Text = s; })));
-            }
+            try { Installer.Run(C, O, (f, s) => BeginInvoke((Action)(() => { bar.Value = Math.Max(0, Math.Min(1000, (int)(f * 1000))); progLabel.Text = s; }))); }
             catch (Exception e) { err = e; }
             BeginInvoke((Action)(() =>
             {
                 installing = false;
                 if (err != null) { MessageBox.Show(this, "Setup failed: " + err.Message, Text, MessageBoxButtons.OK, MessageBoxIcon.Error); Close(); }
-                else Show(4);
+                else
+                {
+                    if (Installer.Warnings.Count > 0) MessageBox.Show(this, string.Join("\n\n", Installer.Warnings), Text + " - please read", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                    Show(3);
+                }
             }));
         });
         t.IsBackground = true; t.Start();
@@ -955,10 +1226,10 @@ class Wizard : Form
         Directory.CreateDirectory(dir);
         var w = new Wizard(c);
         w.CreateControl(); w.Show();
-        for (int p = 0; p <= 4; p++)
+        for (int p = 0; p <= 3; p++)
         {
             w.Show(p);
-            if (p == 3) { w.bar.Value = 420; w.progLabel.Text = "MISSIONS\\multiplayer\\sandstorm_sp\\textures\\sandstorm.res"; }
+            if (p == 2) { w.bar.Value = 420; w.progLabel.Text = @"MISSIONS\multiplayer\sandstorm_sp\textures\sandstorm.res"; }
             Application.DoEvents();
             using (var b = new Bitmap(w.Width, w.Height)) { w.DrawToBitmap(b, new Rectangle(0, 0, w.Width, w.Height)); b.Save(Path.Combine(dir, "page" + p + ".png")); }
         }

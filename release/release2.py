@@ -39,6 +39,7 @@ ASILOADER = os.path.join(HERE, 'asiloader', 'version.dll')   # our own ASI loade
 EXTRA_RES = ('854x480, 1024x768, 1280x720, 1280x800, 1280x1024, 1366x768, 1440x900, 1600x900, 1600x1200, 1680x1050, '
              '1920x1080, 1920x1200, 2560x1080, 2560x1440, 2560x1600, 3840x2160')       # (coordinator 11-23: 16 = dgVoodoo max)
 SHARP_CONF = {'Antialiasing': '4x', 'Filtering': '16'}    # the owner's look, put back after the display script's Sharp setting
+MPA_EXE = r'C:\Users\1qdeath\.claude\uploads\8e3f0c2a-bb0b-44dc-a11d-32989ee56748\b09d6b97-igi2.exe'   # a real other-version exe (owner, 11-24)
 PATCH_MARK = 'IGI2 Patch.asi'          # present = a GOG game with the community widescreen patch (other base tree)
 CLEAN_JUNK = re.compile(r'(?i)(\.bak|\.log$|\.rpt$|^md5sums\.txt$|^warninglog\.txt$|^flymode|^marks|\.tmp$|^savegames/.+|'
                         r'read me first|^start game\.bat$|^remove fly mode\.bat$|\.display-backup$)')
@@ -126,27 +127,17 @@ def full_stage(exe, display, build_dir):
 
 
 FULL_README = '''
-OPERATION SANDSTORM - IGI 2: Covert Strike
-Made by 1QDeath   -   Discord: 1QDeath
+OPERATION SANDSTORM - IGI 2
 
-Start the game from the desktop shortcut or igi2.exe. Operation Sandstorm is the mission in the list.
-Esc skips cutscenes. Save: I (IGI HQ laptop) > Upload mission data; load: F7 or Load Saved Game.
-Picture: IGI2_Display_Setup.cmd (in this folder) switches between Sharp / Low-end / Very low.
-Uninstall: Windows Settings > Apps (or Uninstall.exe in this folder).
-
-IGI 2: Covert Strike (c) Innerloop Studios / Codemasters. dgVoodoo 2 by Dege.
+Start the game from the desktop shortcut or igi2.exe and pick Operation Sandstorm.
+Picture settings: IGI2_Display_Setup.cmd. Uninstall: Windows Settings > Apps.
 '''
 
 ADDON_README = '''
-OPERATION SANDSTORM - a new mission for IGI 2: Covert Strike (GOG version, with or without a widescreen patch)
-Made by 1QDeath   -   Discord: 1QDeath
+OPERATION SANDSTORM 1.1 - a new IGI 2 mission
 
-Run Setup.exe and pick your IGI 2 folder. Sandstorm is added after the original missions and is unlocked at once;
-your original missions stay. Start IGI 2, Play, choose Operation Sandstorm.
-Esc skips cutscenes. Save: I (IGI HQ laptop) > Upload mission data; load: F7 or Load Saved Game.
-Uninstall: Windows Settings > Apps > Operation Sandstorm - every changed game file comes back from its backup.
-
-IGI 2: Covert Strike (c) Innerloop Studios / Codemasters. dgVoodoo 2 by Dege.
+Run Setup.exe, pick your IGI 2 folder, Install. Sandstorm comes after the original missions and is unlocked.
+Uninstall: Windows Settings > Apps > Operation Sandstorm (every changed file comes back).
 '''
 
 FLY_README = '''
@@ -216,14 +207,20 @@ def addon_payload(st, exe, display):
     assert None not in tree_gog.values(), [f for f, h in tree_gog.items() if h is None][:5]
     assert None not in tree_patch.values(), [f for f, h in tree_patch.items() if h is None][:5]
     deleted = sorted(f for f in set(mgog) | set(mneo) if f not in tree)
-    shared = {}
-    for rel in ['MENUSYSTEM/missionsprites.res'] + ['LANGUAGE/%s/%s.res' % (l, f) for l in R.LANGS for f in R.RESFILES]:
-        o = md5(os.path.join(R.PRE_PATCH, rel))
-        assert o == md5(os.path.join(REPO, 'backup', 'original', rel)), rel     # built from the same original
-        d = os.path.join(pay, 'shared', rel)
-        os.makedirs(os.path.dirname(d), exist_ok=True)
-        shutil.copy2(os.path.join(st, rel), d)
-        shared[rel.replace('/', '\\')] = o
+    shared = {}      # (v1.1: no whole language / menu files any more - Setup adds our entries to the player's own files, any version)
+    meta = json.load(open(os.path.join(build_dir_of(st), 'meta.json')))
+    lang = {f: meta['text'][f] for f in R.RESFILES if meta['text'].get(f)}
+    # the mission picture: the chunks our install added to missionsprites.res (by name, vs the GOG original)
+    import recipe as RC0
+    gname = {n for n, t, d, a in RC0.pairs(os.path.join(R.PRE_PATCH, 'MENUSYSTEM', 'missionsprites.res'))[2] if n}
+    sprites = {}
+    os.makedirs(os.path.join(pay, 'shared', 'sprites'))
+    for n, t, d, a in RC0.pairs(os.path.join(st, 'MENUSYSTEM', 'missionsprites.res'))[2]:
+        if n and n not in gname and t == b'BODY':
+            k = 'shared/sprites/%d.bin' % len(sprites)
+            open(os.path.join(pay, k.replace('/', os.sep)), 'wb').write(d)
+            sprites[n] = k
+    assert sprites, 'no mission picture found'
     os.makedirs(os.path.join(pay, 'shared', 'loading'))
     shutil.copy2(os.path.join(REPO, 'loading', '%d.jpg' % MID), os.path.join(pay, 'shared', 'loading', 'loading%02d.jpg' % MID))
     shutil.copy2(os.path.join(REPO, 'loading', 'generic.jpg'), os.path.join(pay, 'shared', 'loading', 'loading.jpg'))
@@ -263,7 +260,7 @@ def addon_payload(st, exe, display):
         return os.path.join(R.LIVE, rel)
     recipes, ref_total, own_total = [], 0, 0
     targets = [('mission', f, os.path.join(pay, 'mission', f)) for f in files if f.lower().endswith('.res')] + \
-              [('shared', rel, os.path.join(pay, 'shared', rel)) for rel in shared]
+              []
     for k, (kind, rel, path) in enumerate(targets):
         want = md5(path)
         binname = 'recipe/%03d.bin' % k
@@ -287,24 +284,38 @@ def addon_payload(st, exe, display):
             copies[f] = whole[h]
             os.remove(os.path.join(pay, 'mission', f))
             files.remove(f)
-    exe_patch = RC.exe_patch(os.path.join(R.PRE_PATCH, 'igi2.exe'), exe)
+    gog_exe = os.path.join(R.PRE_PATCH, 'igi2.exe'); neo_exe = os.path.join(REPO, 'backup', 'igi2.exe.original-6afe26e3')
+    exe_patch = RC.exe_patch2(gog_exe, exe, [gog_exe, neo_exe])       # (v1.1: by content - every replaced byte must hold the GOG original)
+    for k in (gog_exe, neo_exe):
+        out, err = RC.apply_exe_patch2(open(k, 'rb').read(), exe_patch)
+        assert out == open(exe, 'rb').read(), (k, err)
+    for k in [MPA_EXE] if os.path.exists(MPA_EXE) else []:
+        out, err = RC.apply_exe_patch2(open(k, 'rb').read(), exe_patch)
+        say('exe patch on the community 1.3 exe: %s' % (err or 'all %d runs apply' % len(exe_patch['runs'])))
     os.remove(os.path.join(pay, 'exe', 'igi2.exe'))
     say('addon copies from the player game: %d files' % len(copies))
     say('addon recipes: %d .res files, %d MB taken from the player game at install, %d MB of our own chunks; exe patch %d runs + %d tail bytes'
         % (len(recipes), ref_total >> 20, own_total >> 20, len(exe_patch['runs']), len(exe_patch['tail']) // 2))
     readme(os.path.join(pay, 'Sandstorm - README.txt'), ADDON_README)
     exe_orig = [R.sha1(os.path.join(R.PRE_PATCH, 'igi2.exe')), R.sha1(os.path.join(REPO, 'backup', 'igi2.exe.original-6afe26e3'))]
-    setup = dict(mode='addon', product='Operation Sandstorm', version='1.0', key='IGI2_OperationSandstorm',
+    setup = dict(mode='addon', product='Operation Sandstorm', version='1.1', key='IGI2_OperationSandstorm', lang=lang, sprites=sprites,
                  publisher='1QDeath', made_by=BRAND['made_by'], discord=BRAND['discord'], thanks='',
-                 welcome='This adds Operation Sandstorm, a new single-player mission, to your IGI 2: Covert Strike (GOG version, '
-                         'with or without a widescreen patch). Your original missions stay; Sandstorm comes after them in the '
-                         'mission list and is unlocked at once.',
+                 welcome='This adds Operation Sandstorm, a new single-player mission, to your IGI 2: Covert Strike (any version: '
+                         'GOG, retail / CD with the official patches, other stores, community patches). Your original missions stay; '
+                         'Sandstorm comes after them in the mission list and is unlocked at once.',
                  gog_id=GOG_ID, default_dir='', folder=FOLDER, location=LOC, base=BASE, own_common='common',
                  files=sorted(files), deleted=deleted, tree=tree_gog, tree_patch=tree_patch, patch_mark=PATCH_MARK, hd=hd, shared=shared,
                  loading=['loading%02d.jpg' % MID, 'loading.jpg'], exe_orig_sha1=exe_orig, exe_new_sha1=R.sha1(exe), exe_patch=exe_patch, recipes=recipes, copies=copies,
                  n_ids=len(ids), extra_res=extra_res, sharp_conf=SHARP_CONF, size=sum(os.path.getsize(os.path.join(tgt, f)) for f in tree), mission_id=MID)
     say('addon payload: %d mission files, %d Patch chunks swapped for GOG ones, list %s' % (len(files), len(swapped), ids))
     return pay, setup
+
+
+_BUILD = {}
+
+
+def build_dir_of(st):
+    return _BUILD['dir']
 
 
 def full_setup(st):
@@ -412,6 +423,7 @@ def main():
     a = ap.parse_args()
     only = set(a.only.upper().split(','))
     build_dir = os.path.join(REPO, 'build', a.build)
+    _BUILD['dir'] = build_dir
     if md5(os.path.join(build_dir, 'objects.qvm')) != a.md5:
         sys.exit('build %s objects.qvm is not %s' % (a.build, a.md5))
     t0 = time.time()

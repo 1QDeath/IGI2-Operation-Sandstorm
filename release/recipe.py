@@ -50,7 +50,9 @@ def gog_index():
                     continue
                 for name, t, d, a in prs:
                     if name and len(d) >= SMALL:
-                        _IDX.setdefault(md5b(d), (rel, name))
+                        lst = _IDX.setdefault(md5b(d), [])
+                        if len(lst) < 6 and (rel, name) not in lst:
+                            lst.append((rel, name))          # (v1.1: other places with the same bytes = alternative sources)
     return _IDX
 
 
@@ -83,8 +85,11 @@ def res_recipe(path, blob_path):
     for name, t, d, a in prs:
         h = md5b(d)
         if len(d) >= SMALL and h in idx:
-            rel, src = idx[h]
-            rec['chunks'].append({'t': t.decode('latin1'), 'a': a, 'g': rel, 'n': src, 'm': h})
+            (rel, src), alts = idx[h][0], idx[h][1:]
+            c = {'t': t.decode('latin1'), 'a': a, 'g': rel, 'n': src, 'm': h}
+            if alts:
+                c['alt'] = [list(x) for x in alts]
+            rec['chunks'].append(c)
             ref_bytes += len(d)
         else:
             rec['chunks'].append({'t': t.decode('latin1'), 'a': a, 'o': len(blob), 'l': len(d)})
@@ -110,10 +115,21 @@ def resolve(rec, blob, root_of):
     chs, other = [], 0
     for c in rec['chunks']:
         if 'g' in c:
-            d = _chunks_by_name(root_of(c['g'])).get(c['n'].lower())
+            # same order as Setup.exe: the same bytes at any known place first, then the same asset name (the player's version)
+            cands = [(c['g'], c['n'])] + [tuple(x) for x in c.get('alt', [])]
+            d = None
+            for rel, nm in cands:
+                p = root_of(rel)
+                v = _chunks_by_name(p).get(nm.lower()) if os.path.exists(p) else None
+                if v is not None and md5b(v) == c['m']:
+                    d = v; break
+            if d is None:
+                for rel, nm in cands:
+                    p = root_of(rel)
+                    v = _chunks_by_name(p).get(nm.lower()) if os.path.exists(p) else None
+                    if v is not None:
+                        d = v; other += 1; break
             assert d is not None, (c['g'], c['n'])
-            if md5b(d) != c['m']:
-                other += 1
         else:
             d = blob[c['o']:c['o'] + c['l']]
         chs.append((c['t'].encode('latin1'), d, c['a']))
@@ -133,3 +149,77 @@ def exe_patch(gog_exe, new_exe):
         else:
             i += 1
     return {'runs': runs, 'tail': b[L:].hex(), 'size': len(b), 'result_sha1': hashlib.sha1(b).hexdigest()}
+
+
+# ---------------------------------------------------------------- v1.1: exe patch by CONTENT (any exe of the same build)
+def pe_checksum(b, cs_off):
+    """the standard PE checksum (16-bit one's complement sum with the checksum field taken as 0, plus the file length)"""
+    s = 0
+    n = len(b) // 2 * 2
+    for i in range(0, n, 2):
+        if cs_off <= i < cs_off + 4:
+            continue
+        s += b[i] | (b[i + 1] << 8)
+        s = (s & 0xffff) + (s >> 16)
+    if len(b) & 1:
+        s += b[-1]; s = (s & 0xffff) + (s >> 16)
+    s = (s & 0xffff) + (s >> 16)
+    return (s + len(b)) & 0xffffffff
+
+
+def exe_patch2(gog_exe, new_exe, known_exes):
+    """runs WITH the GOG original bytes + the header fields that are recomputed for the player's exe"""
+    import struct
+    a = open(gog_exe, 'rb').read(); b = open(new_exe, 'rb').read()
+    p = exe_patch(gog_exe, new_exe)
+    for r in p['runs']:
+        r.append(a[r[0]:r[0] + len(r[1]) // 2].hex())
+    pe = struct.unpack_from('<I', a, 0x3c)[0]; opt = struct.unpack_from('<H', a, pe + 20)[0]
+    ns_gog = struct.unpack_from('<H', a, pe + 6)[0]; ns_new = struct.unpack_from('<H', b, pe + 6)[0]
+    sec0 = pe + 24 + opt
+    p.update(pe=pe, opt=opt, gog_len=len(a), ns_gog=ns_gog, ns_new=ns_new,
+             f_ns=pe + 6, f_char=pe + 0x16, f_soi=pe + 0x50, f_cs=pe + 0x58, f_salign=pe + 0x38,
+             slots=[sec0 + 40 * ns_gog, sec0 + 40 * ns_new],
+             known_cs=sorted({struct.unpack_from('<I', open(k, 'rb').read(), pe + 0x58)[0] for k in known_exes}),
+             result_cs=struct.unpack_from('<I', b, pe + 0x58)[0], laa=0x20)
+    return p
+
+
+def apply_exe_patch2(src, p):
+    """-> (patched bytes, None) or (None, reason): the Python twin of Setup.exe's PatchExe (proof + tests)"""
+    import struct
+    if len(src) != p['gog_len']:
+        return None, 'size %d differs from the GOG build (%d)' % (len(src), p['gog_len'])
+    pe = struct.unpack_from('<I', src, 0x3c)[0]
+    if pe != p['pe'] or struct.unpack_from('<H', src, pe + 20)[0] != p['opt'] or struct.unpack_from('<H', src, pe + 6)[0] != p['ns_gog']:
+        return None, 'PE header layout differs from the GOG build'
+    rec = set()
+    for o, n in ((p['f_ns'], 2), (p['f_char'], 2), (p['f_soi'], 4), (p['f_cs'], 4)):
+        rec |= set(range(o, o + n))
+    s0, s1 = p['slots']
+    b = bytearray(src)
+    for off, new, old in p['runs']:
+        nb, ob = bytes.fromhex(new), bytes.fromhex(old)
+        for k in range(len(nb)):
+            o = off + k
+            if o in rec:
+                continue
+            if s0 <= o < s1:                          # the two new section headers: the slot holds the GOG bytes or nothing
+                if src[o] != ob[k] and src[o] != 0:
+                    return None, 'section table slot at 0x%x is not free' % o
+            elif src[o] != ob[k]:
+                return None, 'byte 0x%x is 0x%02x, the patch expects 0x%02x' % (o, src[o], ob[k])
+        b[off:off + len(nb)] = nb
+    b += bytes.fromhex(p['tail'])
+    struct.pack_into('<H', b, p['f_ns'], p['ns_new'])
+    struct.pack_into('<H', b, p['f_char'], struct.unpack_from('<H', src, p['f_char'])[0] | p['laa'])
+    salign = struct.unpack_from('<I', b, p['f_salign'])[0]
+    top = 0
+    sec0 = pe + 24 + p['opt']
+    for k in range(p['ns_new']):
+        vs, va = struct.unpack_from('<II', b, sec0 + 40 * k + 8)
+        top = max(top, va + vs)
+    struct.pack_into('<I', b, p['f_soi'], (top + salign - 1) // salign * salign)
+    cs = struct.unpack_from('<I', src, p['f_cs'])[0]
+    struct.pack_into('<I', b, p['f_cs'], p['result_cs'] if cs in p['known_cs'] else pe_checksum(b, p['f_cs']))
+    return bytes(b), None

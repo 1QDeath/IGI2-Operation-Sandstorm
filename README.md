@@ -1,53 +1,32 @@
-# Operation Sandstorm - a custom single-player mission for IGI 2: Covert Strike
+# Operation Sandstorm 1.1 - a new mission for IGI 2: Covert Strike
 
-Made by 1QDeath - Discord: 1QDeath
+Download the release (`Setup.exe` + `Sandstorm.dat`), run `Setup.exe`, pick your IGI 2 folder, Install. Sandstorm comes after
+the original missions and is unlocked. This repository is the source; it contains no game files.
 
-Operation Sandstorm is a new mission for the GOG version of *Project IGI 2: Covert Strike* (plain or with a widescreen patch).
-This repository holds the **source**: the mission builder, the release tooling and the installer. It holds **no game file**:
-IGI 2 is a commercial game (Innerloop Studios / Codemasters) and every asset the mission uses comes from the player's own copy.
+## Works with
+Any IGI 2: Covert Strike (GOG, retail / CD with the official patches, other stores, community patches, any language).
+Setup builds the mission from your own game files and says exactly what is missing if something is.
 
-## Play it
-Download the add-on release (`Setup.exe` + `Sandstorm.dat`), run `Setup.exe` and pick your IGI 2 folder. Setup
-- builds the mission folder from your own game files (the multiplayer map Sandstorm) plus the mission's own data,
-- rebuilds the mission's texture / model / sound packs from your game files (it ships only "recipes" + our own chunks),
-- patches your own `igi2.exe` with the mission's engine fixes (it checks the exe before and after, and backs it up),
-- adds Sandstorm after the 19 original missions, unlocked, and backs up every file it changes.
-Uninstall from Windows Settings > Apps: every changed file comes back from the backup.
+On an `igi2.exe` of the common build (GOG, GOG with the widescreen patch, the community 1.3 exe ...) Setup applies the mission's
+engine fixes; every byte it changes is checked first. On any other exe the mission installs without them and you lose: the
+freeze fix after a mission, Alt+Enter and taskbar handling, DPI / resolution handling, the reload / animation speed fix and the
+credits page. Setup logs your exe hash in `_Sandstorm_backup\manifest.txt` - send it to 1QDeath (Discord) to get it supported.
 
-## Layout
-| folder | what |
-|---|---|
-| `installer/Setup.cs` | the installer / uninstaller (C# 5, .NET Framework 4.5 WinForms, built with the Framework's own `csc.exe`) |
-| `installer/asiloader/` | a tiny ASI loader (`version.dll`) for optional add-ons |
-| `release/` | the release tooling: `release2.py` (payload + recipes + exe patch + packing), `recipe.py`, helpers |
-| `builder/` | the mission builder: `build_sandstorm.py` and the modules it imports (`tools/`) |
-
-The builder needs the game installed and the mission's own assets (music, voices, pictures), which are not in this repository.
-Paths in the scripts point at the author's machine; adjust them for yours.
-
-## Requirements
-- *Project IGI 2: Covert Strike*, GOG version - with or without community patches (Setup detects the base).
-- Windows 10 / 11. Nothing else to install (.NET Framework 4.5+ ships with Windows).
-
-## Resolution and aspect
-- In game: Options > Graphics offers 16 sizes (854x480 up to 3840x2160, 4:3 / 16:9 / 16:10 / 21:9). The choice applies at the next start.
-- By hand: in `dgVoodoo.conf` (game folder), section `[DirectX]`, set `Resolution = h:1920, v:1080` (your width / height), or `max`
-  for the desktop size. The game writes this line itself when you change the size in the menu.
-
-## Frame rate
-- `dgVoodoo.conf`, section `[GeneralExt]`: `FPSLimit = 60` (or 120, 144 ...; 0 = no limit), or use `dgVoodooCpl.exe` in the game folder.
+## Resolution and frame rate
+- Options > Graphics: 16 sizes, applied at the next start. Or `dgVoodoo.conf` `[DirectX]` `Resolution = h:1920, v:1080`.
+- Frame cap: `dgVoodoo.conf` `[GeneralExt]` `FPSLimit = 60` (0 = none), or `dgVoodooCpl.exe`.
 
 ## Uninstall
-Windows Settings > Apps > **Operation Sandstorm** > Uninstall. Every file Setup changed comes back from its backup, including
-`igi2.exe`, the mission list, the texts and your profile's mission position.
+Windows Settings > Apps > Operation Sandstorm. Every changed file comes back, igi2.exe included.
 
 ## Known issues
 - In the ending cutscene, enemies may snap between animations.
 
+## Source layout
+`installer/` Setup.exe source (C#, .NET 4.5) and a tiny ASI loader; `release/` the release tooling; `builder/` the mission builder.
+
 ## Credits
-- Operation Sandstorm: **Made by 1QDeath** - Discord: **1QDeath** - github.com/1QDeath
-- IGI 2: Covert Strike (c) Innerloop Studios / Codemasters.
-- dgVoodoo 2 by Dege.
+Made by 1QDeath - Discord: 1QDeath - github.com/1QDeath. IGI 2: Covert Strike (c) Innerloop Studios / Codemasters. dgVoodoo 2 by Dege.
 
 ## Licence
-See `LICENSE` (placeholder - to be chosen by the author).
+See `LICENSE`.
