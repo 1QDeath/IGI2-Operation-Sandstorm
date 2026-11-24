@@ -175,6 +175,65 @@ def morph(m, shape):
     return m.write()
 
 
+# (fix1122-story C3, owner pics 29 30: "when they say something, their mouth should be moving ... Dhari, Anya, everyone").
+#  The engine moves a speaking actor's mouth from the mesh's HPRM chunk (morph 0 = mouth open, 16 u32 counts + (vertex, delta) records),
+#  driven by the line's .syn and the StatusMessage 'Morph QTask IDs' (tools/lipsync.py). Measured 11-22 on the build's meshes: anya_1,
+#  jones_1 and the rsg_1 men (ssm00 ...) carry HPRM; resg_1, infgu_1 (Dhari = ssm18, the colonel), les_1 and csf_1 ship WITHOUT one,
+#  so their lips could never move, whatever the link said. Here such a mesh gets rsg_1's own mouth morph: every rsg_1 morph vertex is
+#  put in the head bone's frame (all these men share the skeleton), and each head vertex of the target within MOUTH_R of one takes the
+#  delta of its nearest morph vertex, faded out to the radius edge. Vertex counts, UVs, bones and the render data stay as they are.
+MOUTH = os.environ.get('SS_MOUTH', '1') == '1'
+MOUTH_R = 1.4                                                    # cm
+
+
+def _bone_world(m):
+    reih = m.get('REIH')
+    nb = len(m.get('MANB'))
+    offs = reih['offset'].astype(float)
+    parent, nxt = [-1] * nb, 1
+    for b in range(nb):
+        for _ in range(int(reih['nchild'][b])):
+            if nxt < nb:
+                parent[nxt] = b; nxt += 1
+    world = np.zeros((nb, 3))
+    for b in range(nb):
+        world[b] = offs[b] + (world[parent[b]] if parent[b] >= 0 else 0)
+    return world
+
+
+def add_mouth(data, src_mesh='rsg_1', log=None):
+    """bytes of mesh `data` with a mouth morph (HPRM) copied from src_mesh when it has none (unchanged when it has one)"""
+    from scipy.spatial import cKDTree
+    m = mefmesh.Mef.read(data)
+    if any(c_.tag == 'HPRM' for c_ in m.chunks):
+        return data
+    a = mefmesh.Mef.read(_model_bytes(src_mesh))
+    ha = [c_ for c_ in a.chunks if c_.tag == 'HPRM'][0]
+    n0 = int(ha.rec['counts'][0])
+    ra = ha.rec['recs'][:n0]
+    Pa, Pb = JR.bind_pose(a)[0], JR.bind_pose(m)[0]
+    na, nb = len(Pa), len(Pb)
+    ia, ib = _bone_names(a).index('head'), _bone_names(m).index('head')
+    qa = Pa[ra['vi'].astype(int)] - _bone_world(a)[ia]
+    Xb, names = m.get('XTRV'), _bone_names(m)
+    hb = [i for i, n in enumerate(names) if n in ('head', 'rotate_head', 'head end')]
+    cand = np.nonzero(np.isin(Xb['bone'][:nb], hb))[0]
+    qb = Pb[cand] - _bone_world(m)[ib]
+    R = MOUTH_R * 40.96
+    d, j = cKDTree(qa).query(qb)
+    ok = d < R
+    w = np.clip((R - d[ok]) / (0.5 * R), 0.0, 1.0)
+    recs = np.zeros(int(ok.sum()), mefmesh.HPRM_REC)
+    recs['vi'] = cand[ok].astype('<u4')
+    recs['d'] = (ra['d'][j[ok]] * w[:, None]).astype('<f4')
+    if not len(recs):
+        return data
+    cnt = np.zeros(16, '<u4'); cnt[0] = len(recs)
+    m.chunks.append(mefmesh.Chunk('HPRM', dict(counts=cnt, recs=recs), ha.align))
+    (log or (lambda *_: None))('sssoldiers: mouth morph %d vertices (from %s, %d)' % (len(recs), src_mesh, n0))
+    return m.write()
+
+
 # body builds: every vertex moves along its own smoothed normal, by region (metres); the bones, UVs and animations stay, so any clip fits
 def scale_mesh(data, s):
     """the whole man s times taller: skeleton offsets and every vertex; the feet stay on the ground only if the clips carry no absolute height"""
@@ -261,10 +320,6 @@ LES = dict(vest=(0.0, 0.0, 0.50, 0.52), legs=(0.0, 0.52, 0.50, 1.0), sleeves=(0.
            glove=(0.65, 0.27, 0.86, 0.45), legs2=(0.50, 0.52, 0.75, 0.80))
 INF = dict(shirt=(0.0, 0.0, 0.62, 0.45), legs=(0.0, 0.45, 0.53, 1.0), sleeves=(0.75, 0.0, 1.0, 0.18), beret=(0.78, 0.18, 1.0, 0.36),
            hands=(0.62, 0.18, 0.78, 0.32), pocket=(0.53, 0.45, 0.62, 0.56), collar=(0.75, 0.62, 1.0, 0.82), skin=(0.52, 0.69, 0.745, 1.0))
-# rsg_1's knife sheath = a loose tube (111 verts) on the outer right thigh, z 0.68-1.03 m: its sides and tip use this corner of the sheet, its top cap a
-# few texels inside 'legs'. THIGH = the trouser cloth right behind it (outer right thigh, between the side seam at u 0.79 and the edge), about the
-# tube's own 20 x 35 cm, so resampled into the corner the weave keeps the trousers' scale
-RSG_SHEATH, RSG_THIGH = (0.72, 0.815, 1.0, 1.0), (0.80, 0.06, 0.96, 0.31)
 
 
 def shipped(name):
@@ -326,15 +381,6 @@ def _mask_camo(img, mask, cols, rng):
     img[..., :3][mask] = np.clip(c[mask] * sh[mask][:, None], 0, 1)
 
 
-def _cover(img, box, src):
-    """region box := the cloth of region src resampled to its size: the trousers' own colour, weave and shading (S21: no knife sheath)"""
-    from PIL import Image
-    d, s = SF._rect(img, *box), SF._rect(img, *src)
-    h, w = img[d].shape[:2]
-    img[d][..., :3] = np.clip(np.dstack([np.asarray(Image.fromarray(np.ascontiguousarray(img[s][..., c], np.float32)).resize((w, h), Image.BICUBIC))
-                                         for c in range(3)]), 0, 1)   # (colour only, as _paint: alpha stays the sheet's)
-
-
 def _masks(img):
     r, g, b = img[..., 0], img[..., 1], img[..., 2]
     blue = (b > r + 0.04) & (b > g)
@@ -343,9 +389,8 @@ def _masks(img):
     return blue, green, skin
 
 
-def body(kind, seed, skin=(0.62, 0.45, 0.33), sheath=True):
-    """float RGBA body sheets. rsg_* on rsg_1 (bare head), les_* on les_1 (helmet + vest), inf_* on infgu_1 (shirt + beret).
-    sheath=False (rsg_* only): the knife sheath wears the trouser cloth beside it (NO_SHEATH)"""
+def body(kind, seed, skin=(0.62, 0.45, 0.33)):
+    """float RGBA body sheets. rsg_* on rsg_1 (bare head), les_* on les_1 (helmet + vest), inf_* on infgu_1 (shirt + beret)"""
     rng = np.random.default_rng(seed)
     if kind.startswith('rsg'):
         img = shipped('ch_rsg_01').copy()
@@ -378,10 +423,7 @@ def body(kind, seed, skin=(0.62, 0.45, 0.33), sheath=True):
         _paint(img, R['pocket'], (0.72, 0.68, 0.58) if kind == 'rsg_suit' else (0.22, 0.22, 0.15), rng=rng)
         _paint(img, R['hands'], skin, keep=0.8)
         _paint(img, R['shoes'], boots, keep=0.75)
-        if sheath:
-            _paint(img, RSG_SHEATH, (0.66, 0.62, 0.53) if kind == 'rsg_suit' else (0.075, 0.065, 0.055), keep=0.55)    # (the knife sheath: dull leather, no shining steel; Kral's suit has none)
-        else:
-            _cover(img, RSG_SHEATH, RSG_THIGH)                     # (S21: no knife on the train crew - the tube reads as a fold of the trousers)
+        _paint(img, (0.72, 0.815, 1.0, 1.0), (0.66, 0.62, 0.53) if kind == 'rsg_suit' else (0.075, 0.065, 0.055), keep=0.55)    # (the knife sheath: dull leather, no shining steel; Kral's suit has none)
         _paint(img, R['badge'], (0.73, 0.69, 0.59) if kind == 'rsg_suit' else (0.16, 0.16, 0.12), keep=0.2)   # (no unit patch on Kral's sleeve)
         if 'lizard' in kind:
             _triangle(img, (0.12, 0.58, 0.20, 0.64))
@@ -405,7 +447,10 @@ def body(kind, seed, skin=(0.62, 0.45, 0.33), sheath=True):
         blue, green, sk = _masks(img)
         yy = np.arange(H)[:, None] / H; xx = np.arange(W)[None, :] / W
         camo = green & (yy > 0.5) & (xx < 0.75)
-        _mask_camo(img, camo, FROG, rng); _mask_paint(img, green & ~camo, (0.36, 0.33, 0.22))
+        if kind == 'csf_black':                                    # (fix1122-story C4: Dhari's aide, black fatigues, no camouflage)
+            _mask_paint(img, green, (0.075, 0.075, 0.08), keep=0.5)
+        else:
+            _mask_camo(img, camo, FROG, rng); _mask_paint(img, green & ~camo, (0.36, 0.33, 0.22))
         _mask_paint(img, sk, skin, keep=0.8)
         return img
     if kind.startswith('les'):
@@ -455,26 +500,18 @@ ROSTER = [
     ('ssm18_1', 'adnan', 'infgu_1', None, 'inf_general', 'officer', 1, 'fat'),
     # (orchestrator 11-14, owner: "josef breboy most not be in iraq" - Kral the arms broker wore the Senator's pat_1: his own invented face, a cream suit, cutscenes only)
     ('ssm19_1', 'kral', 'rsg_1', 'thin', 'rsg_suit', 'civ', 1, None),
-    # (S21 11-15: the ending's loco mate - Nasir as ssm08_1, same mesh, but that sheet is worn by live AK guards in both missions: his own, no sheath)
-    ('ssm20_1', 'nasir', 'rsg_1', 'bigbeard', 'rsg_jeans2', 'crew', 1, 'muscle'),
+    # (fix1122-story C4, owner pic 31: 'the man behind Dhari ... a mask on his face, or another character which is unique'): Dhari's aide, a black balaclava
+    #  and black fatigues, worn by nobody else ('named': no live guard). Same mesh key as ssm12 (csf_1, None, 'muscle') and ssm12's face map: one new body sheet only
+    ('ssm20_1', 'salim', 'csf_1', None, 'csf_black', 'named', 1, 'muscle'),
 ]
 NAMES = [r[0] for r in ROSTER]
-# (S21 11-15, owner: 'the men who drive the train are holding guns ... they're hidden stuff': the loco crew are railwaymen, so no knife sheath. A body
-#  sheet is shared by everyone who wears that man, so a sheet loses its sheath only in a level where none of its wearers is armed: ssm14_1 is
-#  Sandstorm's loco driver (+ cutscene technicians, never a HumanSoldier there) but an AK regular in Sirocco (build_sirocco5 REGULARS)
-# (PLAN decision 76, 11-17: crew continuity = the INSTALLED crew, ssm14_1 + ssm08_1 with the painted sheath, in Sandstorm and Sirocco alike. The sheath-free
-#  crew (bd5c486, + the Sirocco copy 4947911) goes into no install: off by default, SS_CREW_PLAIN=1 brings it back. Off = the rc7s25 / ssb2 skins, no ssm20_1 row)
-CREW_PLAIN = os.environ.get('SS_CREW_PLAIN', '0') == '1'
-NO_SHEATH = {'sandstorm': ('ssm14_1', 'ssm20_1')} if CREW_PLAIN else {}   # level -> men whose body sheet there is the sheath-free 'ss_c_' copy
-LEVEL_ONLY = {'ssm20_1': ('sandstorm',) if CREW_PLAIN else ()}            # rows registered in those levels only (no VNAM / LOD-table row elsewhere)
-CREW = {'ssm08_1': 'ssm20_1'} if CREW_PLAIN else {}                       # assign(): the 'SS loco crew' actors' skin -> the sheath-free man (ssoutro._crew names ssm08_1)
-REGISTERED = None                                                 # the names add_skins put in this build's bank
 COLONEL, GENERAL = 'ssm16_1', 'ssm18_1'
 CHARS = os.environ.get('SS_CHARS', '1') == '1'                   # (owner 58: fat, muscular, skinny bodies)
 HEIGHT = {('rsg_1', 'thin', 'skinny'): 1.05, ('rsg_1', 'heavy', 'fat'): 0.95} if CHARS else {}   # (proven: feet stay on the ground, stills ch3, walking ch4)
 HEAD_SIZE = int(os.environ.get('SS_HEADSIZE', '2048'))
 HEADSRC = {'les_1': 'les_1', 'infgu_1': 'ch_infgu_1', 'rsg_1': 'ch_rsg_00', 'resg_1': 'ch_resg_00', 'csf_1': 'csf_1'}
-LEADERS = ['ssm03_1', 'ssm05_1', 'ssm17_1', 'ssm15_1', 'ssm11_1']   # (owner 11-13: sergeants and officers look their own; the man in the middle of a group)
+LEADERS = ['ssm03_1', 'ssm05_1', 'ssm15_1', 'ssm11_1']   # (fix1120 L9: ssm17_1 out, see STORY_ONLY)
+STORY_ONLY = ('ssm17_1',)    # (fix1120 L9, owner pic 29: 'Dhari's face playing as a soldier': ssm17 = the fat moustached beret officer, Dhari's look and Sirocco's aide (sfmen.GUARD_BAN); no live guard wears him, cutscenes may)   # (owner 11-13: sergeants and officers look their own; the man in the middle of a group)
 HEADGEAR = {'rsg_1': 'bare', 'resg_1': 'cap', 'les_1': 'helmet', 'csf_1': 'mask', 'infgu_1': 'beret'}
 
 
@@ -522,22 +559,17 @@ def _skin(face):
     return tuple(float(x) for x in open(os.path.join(HEADS, '%s.skin.txt' % face)).read().split())
 
 
-def _body_tex(bd, seed, face, sheath=True):
-    from PIL import Image
-    img = body(bd, seed, _skin(face), sheath=sheath)
-    if img.shape[0] > 1024:
-        img = np.dstack([np.asarray(Image.fromarray((np.clip(img[..., c], 0, 1) * 255).astype('u1')).resize((1024, 1024), Image.LANCZOS), np.float32) / 255.0 for c in range(4)])
-    return wreck.tex_mode2(img)
-
-
 def _textures():
     """-> {texture name: bytes}, {vnam: (mesh name in the bank, [texture names by slot])}, {mesh name: mef bytes}"""
-    texs, skins, meshes, mesh_id, seeds = {}, {}, {}, {}, {}
+    from PIL import Image
+    texs, skins, meshes, mesh_id = {}, {}, {}, {}
     for vn, face, mesh, shape, bd, kind, wt, build in ROSTER:
         bn = 'ss_b_%s_%s' % (bd[:8], face)                        # (a body sheet per man: his hands and arms have his skin)
         if bn not in texs:
-            seeds[bn] = 8100 + len(texs)
-            texs[bn] = _body_tex(bd, seeds[bn], face)
+            img = body(bd, 8100 + len(texs), _skin(face))
+            if img.shape[0] > 1024:
+                img = np.dstack([np.asarray(Image.fromarray((np.clip(img[..., c], 0, 1) * 255).astype('u1')).resize((1024, 1024), Image.LANCZOS), np.float32) / 255.0 for c in range(4)])
+            texs[bn] = wreck.tex_mode2(img)
         hn = 'ss_h_%s_%s' % (face, mesh[:3])
         if hn not in texs:
             rgb = _head_rgb(face)
@@ -557,13 +589,10 @@ def _textures():
                 data = morph(mefmesh.Mef.read(data), shape)
             if CHARS and HEIGHT.get(k):
                 data = scale_mesh(data, HEIGHT[k])
+            if MOUTH:
+                data = add_mouth(data)
             meshes[mesh_id[k]] = data
         skins[vn] = (mesh_id[k], [bn, hn] + list(_slot_names(mesh)[2:]))
-    for vn in sorted({v for vs in NO_SHEATH.values() for v in vs} & set(skins)):   # (after the loop: no other man's seed moves; same seed = same sheet bar the sheath)
-        r = next(r for r in ROSTER if r[0] == vn)
-        bn = skins[vn][1][0]
-        if 'ss_c_' + bn[5:] not in texs:
-            texs['ss_c_' + bn[5:]] = _body_tex(r[4], seeds[bn], r[1], sheath=False)
     return texs, skins, meshes
 
 
@@ -589,14 +618,9 @@ def _slot_names(mesh):
 
 def add_skins(overlay_dir, level_name, log=print):
     """the same bank work as alskins.add_skins, for many meshes; every slot LOCAL"""
-    global REGISTERED
     paths = wreck._ensure_overlay(overlay_dir, level_name)
     m = mtp.read(paths['mtp'])
     texs, skins, meshes = textures()
-    plain = set(NO_SHEATH.get(level_name, ()))
-    skins = {vn: (mn, ['ss_c_' + tx[0][5:]] + tx[1:] if vn in plain else tx) for vn, (mn, tx) in skins.items() if level_name in LEVEL_ONLY.get(vn, (level_name,))}
-    want = {t for mn, tx in skins.values() for t in tx}
-    texs = {nm: data for nm, data in texs.items() if nm in want}  # (only the sheets this level's men wear: Sandstorm's ssm14_1 sheet with the sheath stays out)
     mform, mch, mhdr = ilff.read(open(paths['models'], 'rb').read())
     have_m = {d.rstrip(b'\0').decode('latin1') for t, d, a in mch if t == b'NAME'}
     for mn, data in meshes.items():
@@ -634,13 +658,10 @@ def add_skins(overlay_dir, level_name, log=print):
         os.replace(tmp, path)
     lab_face(paths['textures'], log)
     b2 = wreck.Bank(paths['mtp'], paths['models'], paths['textures'])
-    names = [n for n in NAMES if n in skins]
-    probs = [n for n in names if b2.res.get(n) is None]
-    log('sssoldiers: %d men, %d textures (%.1f MB), %d meshes, problems %s; no sheath: %s' % (len(skins), len(texs), sum(map(len, texs.values())) / 1e6, len(meshes),
-                                                                                            probs or 'none', sorted(plain & set(skins)) or 'none'))
+    probs = [n for n in NAMES if b2.res.get(n) is None]
+    log('sssoldiers: %d men, %d textures (%.1f MB), %d meshes, problems %s' % (len(skins), len(texs), sum(map(len, texs.values())) / 1e6, len(meshes), probs or 'none'))
     assert not probs, probs
-    REGISTERED = names
-    return list(names)
+    return list(NAMES)
 
 
 LAB_FACE = 'hassan'                                                # (judge p16 11-14: the scientists' eyes are an invented Iraqi man's, not the shipped lab head's)
@@ -696,7 +717,7 @@ def _shipped_bytes(name):
 
 
 def lod_rows():
-    return {n: [1344.0, 1358.0, 1372.0, 1386.0, 1400.0] for n in (NAMES if REGISTERED is None else REGISTERED)}
+    return {n: [1344.0, 1358.0, 1372.0, 1386.0, 1400.0] for n in NAMES}
 
 
 # old skin (what the builder and the cutscene code name) -> role of the man who replaces it
@@ -713,7 +734,7 @@ def assign(m, K=None, log=print):
     sol = [i for i in sorted(m.find('HumanSoldier')) if lit(m.byid[i].args[7]) in ROLE_OF]
     placed = []
     used = dict.fromkeys(NAMES, 0)
-    live = [vn for vn, r in men.items() if vn not in NAMED.values() and r[5] not in ('tech', 'civ', 'named', 'crew')]     # (the colonel and general are one man each; technicians stay in cutscenes)
+    live = [vn for vn, r in men.items() if vn not in NAMED.values() and vn not in STORY_ONLY and r[5] not in ('tech', 'civ', 'named')]     # (the colonel and general are one man each; technicians stay in cutscenes)
     pos = {i: np.array([lit(m.byid[i].args[k]) for k in (3, 4, 5)], float) / 4096.0 for i in sol}
     lab = {i: i for i in sol}
 
@@ -776,17 +797,6 @@ def assign(m, K=None, log=print):
             ok = near[0][1] if near and near[0][0] < 12.0 else min((v for v, r in men.items() if r[5] == role), key=lambda v: used[v])
             m.set(i, 11, ok)
         act += 1
-    crew = 0
-    for i in sorted(m.find('EditBoneObj')):                       # (S21: the loco crew wear the sheath-free men; ssoutro._crew names the live guard ssm08_1)
-        a = m.byid[i].args
-        if 'loco crew' in str(lit(a[2])) and CREW.get(lit(a[11])) in (NAMES if REGISTERED is None else REGISTERED):
-            m.set(i, 11, CREW[lit(a[11])])
-            crew += 1
-    plain = set(NO_SHEATH.get('sandstorm', ()))                   # (assign() is Sandstorm's pass: nobody armed may wear a sheath-free man)
-    armed = [i for i in m.find('HumanSoldier') if lit(m.byid[i].args[7]) in plain] + \
-            [i for i in m.find('EditBoneObj') if len(m.byid[i].args) > 13 and lit(m.byid[i].args[11]) in plain and str(lit(m.byid[i].args[13])).lower() not in ('', 'none')]
-    if armed:
-        log('sssoldiers.assign: WARN S21 - armed men wear a sheath-free body (no knife sheath on an armed man): tasks %s' % armed[:12])
     if os.environ.get('SS_LINEUP'):                               # (test build: every man stands in an arc 3.5 m round this floor point, facing it)
         import atmos
         from mission_lib import T
@@ -801,5 +811,5 @@ def assign(m, K=None, log=print):
             g = math.atan2(-(c[0] - p[0]), c[1] - p[1]) + tn
             i = K.nid()
             m.add_child(K.static_root(), T(i, 'EditBoneObj', 'SS lineup %s' % vn, p[0], p[1], p[2], 0.0, 0.0, g, True, True, vn, True, '107_01_1', '', 'stand_look_about', 1.0, 0.0))
-    log('sssoldiers.assign: %d soldiers, %d cutscene actors, %d loco crew re-dressed; men used %s' % (len(sol), act, crew, sorted(used.items())))
+    log('sssoldiers.assign: %d soldiers, %d cutscene actors; men used %s' % (len(sol), act, sorted(used.items())))
     return used

@@ -16,16 +16,9 @@ WHAT THE PLAYER GETS
         only the ones we added, mix them with the real game's sounds, don't add extra stories. I am not recording any more");
       - the same voice does not shout twice in a row for 12 s (another man takes the turn);
       - one shout at a time on the level, 3.2 s apart at least (sstalk's gate); shouts on the events the engine floods (he sees Jones,
-        hears shots, a man falls, a grenade, he lost him) are 8 or 14 s apart, and a sergeant, officer or radio man may take such a turn
-        3 s before a common soldier;
-      - "yes, sir" (G48, ss-judge W9-1) comes only as the answer to an order of his OWN group (same squad, posted within 15 m of the man
-        who gave it), so the answer is never louder than the order; once per order, and 21 s pass on the level before the next answer;
-      - "what's that?" / "is anyone there?" / the sergeant's "quiet!" (G48, W9-2) are lines of a CALM base: none for 20 s after any
-        man's fight event (he sees Jones, a shot, a hit, a death, a grenade, a call for backup), none for 60 s after the alarm goes on,
-        and 8 or 14 s apart among themselves;
+        hears shots, a man falls, a grenade) are 8 or 14 s apart; "yes, sir" comes only as the answer to a sergeant's or officer's order, and a sergeant, officer or radio man may take such a turn 3 s before a common soldier;
       - a hit: one of seven sounds in turn (three wordless cries of the friends, the original game's three soldier hit sounds, the
         family's word once in seven), 2.5 s apart on the level;
-      - while the mission's hold flag is set (g['SV_HOLD'], a story radio line is playing in play) no shout starts; cries are never held;
       - a death: every second death keeps the game's own groan; the others are a gasp, a breath, and "mother" once in six deaths.
   General Dhari speaks Arabic in the opening and in the server room (captions stay English); the camera operator and the aide answer.
   The radio man works his set in the comms room (scene sheet friends_11-10/sheets/18_comms.md).
@@ -45,8 +38,8 @@ HOW (engine facts are sstalk's, work/sandstorm/voices/ENGINE_NOTES.md)
   bank and stay untouched; it plays none on a one-shot kill). A hit is not a shout: the cry plays at once, outside the gate, no caption.
   Loud (owner 11-13: "really low"): every DefineSound is volume 1 (the engine clamps higher, soundsys.c) and full volume out to 15 m
   (Miles 3D: about 6 dB down for each doubling beyond that).
-  Budget (task ids are short, 4096 in all): a list costs 1 id (its StatusMessage) + 1 (its turn) when it has more than one line; ten
-  level variables (pain, rest, same-voice, order, answer-rest and calm clocks, last voice, order group, hit turn, death turn). Sound definitions are not script symbols.
+  Budget (task ids are short, 4096 in all): a list costs 1 id (its StatusMessage) + 1 (its turn) when it has more than one line; six
+  level variables (pain, rest, same-voice and order clocks, last voice, hit turn, death turn). Sound definitions are not script symbols.
 """
 import csv, json, os, re, sys
 
@@ -90,19 +83,14 @@ for _v in VOICES:
 # inside its first shouts (rig takes lg*: with the sergeant's attack pool Libyan-first too, three Libyan lines came in a row). Only readings the catalogue calls 'sure' are in a pool, each with its caption.
 # A word is in at most two pools of its family, so one sentence does not come back from every kind of event.
 CATS = [
-    # (G48, ss-judge W9-1: no gunshot events: they made the answer land in the middle of a burst. BACKUP_REQUEST is the one that comes
-    #  right after an order: the order giver's own ENEMYDETECTION calls his squad for backup, alarmai)
-    ('young', 'reply', ('ENEMYDETECTION', 'BACKUP_REQUEST', 'DISTRESSCALL', 'ALARMON', 'LOSTSIGHTOFENEMY'),
+    ('young', 'reply', ('ENEMYDETECTION', 'GUNSHOT', 'BULLETIMPACT', 'GUNSHOTMISS', 'ALARMON', 'BACKUP_REQUEST', 'DISTRESSCALL', 'LOSTSIGHTOFENEMY'),
      [('yessir', 'Yes, sir!'), ('gun', 'Ready!'), ('ok', 'Yes.')]),   # (the Libyan bank has no answer line: ids 05-07 are not in it)
     ('young', 'grenade', ('GRENADESHOUT', 'GRENADELAND', 'GRENADETHROWN'), [('grenade', 'Get down!'), ('@gv_76', 'Find cover!'), ('cover', 'Hide!'), ('@gv_43', 'Get down! Duck!')]),
     ('young', 'mandown', ('FRIENDLY_DYING', 'DEATH_CRY', 'FRIENDLYDETECTION'), [('mandown', 'They killed him!'), ('@gv_60', 'One of the men is down!'), ('alarm', 'Alarm!'), ('@gv_57', 'Man down!')]),
     ('young', 'see', ('ENEMYDETECTION',), [('see', 'I see him!'), ('@gv_30', 'There he is!'), ('found', 'Here! Here!'), ('@gv_66', 'Get him! Kill him!'), ('enemy', 'Stop!'), ('@gv_35', 'I see him!'),
                                            ('fire', 'Get him! Get him!'), ('@gv_36', 'Intruder!'), ('hold', 'Nobody move!')]),
-    # (G48, ss-judge W9-2: "Who's there? Answer!" left this pool. LOSTSIGHTOFENEMY comes all through a firefight and the line reads as a
-    #  calm guard's question there; it stays in 'what', which is silent while a fight runs)
-    ('young', 'lost', ('LOSTSIGHTOFENEMY',), [('lost', 'I lost him!'), ('@gv_80', 'Where is he now?'), ('search', 'Find him!')]),
-    # (G48: "Ready!" left this pool. It is one of the three answers; here it came with no order before it and read as an answer to nobody)
-    ('young', 'reload', ('HANDLEWEAPON',), [('reload', "I'm out of ammo!"), ('@gv_22', 'Cover me!')]),
+    ('young', 'lost', ('LOSTSIGHTOFENEMY',), [('lost', 'I lost him!'), ('@gv_80', 'Where is he now?'), ('search', 'Find him!'), ('who', "Who's there? Answer!")]),
+    ('young', 'reload', ('HANDLEWEAPON',), [('reload', "I'm out of ammo!"), ('@gv_22', 'Cover me!'), ('gun', 'Ready!')]),
     ('young', 'alarm', ('ALARMON',), [('@gv_17', 'Sound the alarm!'), ('alarm', 'Alarm!'), ('hurry', 'Move!')]),
     ('young', 'shots', ('GUNSHOT', 'BULLETIMPACT', 'GUNSHOTMISS', 'EXPLOSION'), [('@gv_41', "We're under fire!"), ('shots', 'Where from?'), ('@gv_84', 'Take cover!'), ('cover', 'Hide!')]),
     ('young', 'what', ('SEENSOMETHING', 'REACTTOSUSPICION'), [('what', 'I heard something.'), ('@gv_47', "What's that?"), ('who', "Who's there? Answer!"), ('@gv_49', 'Is anyone there?')]),
@@ -121,9 +109,9 @@ CATS = [
     ('radio', 'mandown', ('FRIENDLY_DYING', 'DEATH_CRY', 'FRIENDLYDETECTION', 'FRIENDLY_DAMAGE_SEEN'), [('silent', "The guards don't answer!")]),
     ('radio', 'lost', ('LOSTSIGHTOFENEMY',), [('noanswer', 'No answer.'), ('dead', 'The line is dead.')]),
     ('radio', 'clear', ('SEARCHOVER',), [('normal', 'All normal.'), ('received', 'Received.'), ('over', 'Out.')]),
-    ('scientist', 'see', ('ENEMYDETECTION', 'ENEMYDETECTION_NO_LOF'), [('dontshoot', "Don't shoot!"), ('civilian', "I'm a civilian, a civilian!"), ('please', 'I beg you, oh God!'),
+    ('scientist', 'see', ('ENEMYDETECTION', 'ENEMYDETECTION_NO_LOF'), [('civilian', "I'm a civilian, a civilian!"), ('dontshoot', "Don't shoot!"), ('please', 'I beg you, oh God!'),
                                                                         ('kids', 'I have children, I beg you!'), ('notme', "It wasn't me! It wasn't me!"), ('take', 'Take everything!')]),
-    ('scientist', 'shots', ('GUNSHOT', 'GUNSHOTMISS', 'BULLETIMPACT', 'VISUAL_GUNSHOT', 'EXPLOSION'), [('god', 'Oh God! Oh God!'), ('no', 'No, no, no, no!')]),
+    ('scientist', 'shots', ('GUNSHOT', 'GUNSHOTMISS', 'BULLETIMPACT', 'VISUAL_GUNSHOT', 'EXPLOSION'), [('civilian', "I'm a civilian, a civilian!"), ('god', 'Oh God! Oh God!'), ('no', 'No, no, no, no!')]),   # (fix1120 L10, owner pic 43: shot at, a scientist must shout the friends' 'civilian' line first)
     ('scientist', 'mandown', ('FRIENDLY_DYING', 'DEATH_CRY', 'FRIENDLY_DAMAGE_SEEN', 'ALARMON'), [('run', 'Run!'), ('guards', 'Guards! Guards!')]),
 ]
 # a hit: the man's own cry at once, whatever else is being shouted, no caption (rig vcf3: behind the shout gate a hit never got its turn).
@@ -162,41 +150,15 @@ if STAGED:
 # flood). So these lists also wait for a rest clock: after one of them REST ticks pass before the next (8 or 14 s; 11-13 the owner found
 # 5 and 9 s still too much talk). A typed man (sergeant, officer, radio, scientist) may go EARLY ticks sooner: in the 11-13 storage
 # house take a common soldier took both turns and the sergeant none.
-# G48 (ss-judge W9-2): 'lost' is under the same rest (LOSTSIGHTOFENEMY comes all through a long fight; Sirocco take w9_al).
-FLOOD = {'see', 'shots', 'grenade', 'mandown', 'lost', ('radio', 'alarm')}
-# G48 (ss-judge W9-2, Sirocco take w9_al: "What's that? / Is anyone there? / I heard something." about 20 of 31 shouts, one every
-# 8 s through a continuous alarm firefight; the unengaged men of the level keep getting SEENSOMETHING / REACTTOSUSPICION from it).
-# The CALM pools speak only while the level's calm clock stands at 0. EVERY voiced man's script winds it back on his own fight events,
-# whether he may shout or not: FIGHT_HOLD ticks on a FIGHT_EVS event, ALARM_HOLD on AIEVENT_ALARMON. A calm line itself winds it
-# REST ticks, which is those pools' rest clock (their own, so "What's that?" never delays the "I see him!" that follows it).
-# No mission hook: the signal is the men's own events, the same in Sandstorm and Sirocco.
-CALM = {'what'}
-FIGHT_EVS = ('ENEMYDETECTION', 'ENEMYDETECTION_NO_LOF', 'GUNSHOT', 'GUNSHOTMISS', 'BULLETIMPACT', 'VISUAL_GUNSHOT', 'FRIENDLY_GUNSHOT', 'EXPLOSION',
-             'TAKINGDAMAGE', 'FRIENDLY_DAMAGE_SEEN', 'FRIENDLY_DYING', 'DEATH_CRY', 'WOUNDED_CRY', 'GRENADESHOUT', 'GRENADELAND', 'GRENADETHROWN',
-             'FLASHBANG', 'BACKUP_REQUEST', 'DISTRESSCALL')
-FIGHT_HOLD = 600                                               # ticks: 20 s after the last fight event of any man
-ALARM_HOLD = 1800                                              # ticks: 60 s after the alarm goes on
+FLOOD = {'see', 'shots', 'grenade', 'mandown', ('radio', 'alarm')}
 # ss-judge 11-13 (rc7s5, Q12): a reply needs an order. These pools are orders; after one of them a common soldier may answer from the
 # 'reply' pool for ORDER_WIN ticks (the shout gate opens 3.2 s after the order starts, so the answer comes 3 to 6 s after it), once.
-# G48 (ss-judge W9-1, Sirocco take w9_al: the nearest man said "Yes, sir / Ready / Yes" nine times on a 6.5 s beat to orders 10 to
-# 15 dB quieter or not audible at all). The judge's rule: answer only an order the player could hear, i.e. the man who answers is near
-# the man who gave it (same squad). Every soldier gets a GROUP number at build time: his squad (the task that holds him), split into
-# posts no wider than GROUP_NEAR (start positions, every member within GROUP_NEAR of every other). An order winds the order clock and
-# writes the giver's group into SV_OSQ; only a man of that group may answer, once, and then REPLY_REST ticks pass on the level.
-# (11-15 first try, dropped: "both men see Jones within 20 m" by AIFunction_GetEventDistance on ENEMYDETECTION. Takes ga1 / ga2 had
-#  three audible orders and no answer at all: that the event's place is Jones is not proven, the test seems never to pass.)
 ORDERS = {('sergeant', 'see'), ('sergeant', 'lost'), ('officer', 'see'), ('officer', 'alarm')}
 ORDER_WIN = 180
-# player2 11-15 (film ss_full2, N6): "OFFICER: I want him alive!" came 8 times while the men shot at Jones. A pool in ONCE says its first
-# line once per level, then stays on its last line ("Now!"): the turn counter stops at the end instead of going round.
-ONCE = {('officer', 'see')}
-GROUP_NEAR = 15.0                                              # metres between any two men of one answering group (start positions)
-REPLY_REST = 630                                               # ticks: 21 s between two answers on the level
 REST = (240, 420)                                              # ticks (GAME_FREQUENCY = 30)
 EARLY = 90
 SAME = 360                                                     # ticks before the voice that shouted last may shout again
 TIMES = max(1, int(os.environ.get('SS_VOICES_X', '1')))        # how many times a shout or cry is started at once (test knob until the rig says 2 is clean)
-WU_M = 4096                                                    # world units in a metre (soldier 1347: 712294 units = 173.9 m)
 SELF_HIT = 6000                                                # world units (4096 = 1 m): a hit this near a man's eyes is on him, not on his neighbour
 # this mission's English squad barks (build_sandstorm._EN event -> GV ids) go silent where the young family has the situation recorded
 GV_COVER = {'see': ('EnemySpotted', 'EnemyFound', 'EnemyDetected', 'Engaging', 'HurryUp'), 'alarm': ('RaiseAlarm',), 'grenade': ('Grenade',), 'mandown': ('ManDown',),
@@ -343,9 +305,7 @@ def stage(g):
         table[(f, k)] = (code, evs, lines, turn)
     g['SV'] = table
     for key, name, rule in (('SV_PAIN', 'SV pain clock', True), ('SV_REST', 'SV rest clock', True), ('SV_SAME', 'SV same voice clock', True), ('SV_ORDER', 'SV order clock', True),
-                            ('SV_LAST', 'SV last voice', False), ('SV_HIT', 'SV hit turn', False), ('SV_DIE', 'SV death turn', False),
-                            ('SV_RREST', 'SV answer rest clock', True), ('SV_CALM', 'SV calm clock', True),
-                            ('SV_OSQ', 'SV order group', False)):   # (G48: the new ones last, so the older ones keep their ids)
+                            ('SV_LAST', 'SV last voice', False), ('SV_HIT', 'SV hit turn', False), ('SV_DIE', 'SV death turn', False)):
         g[key] = pc = new(); n_id += 1                        # (a clock's rule adds its value every tick: set negative, it walks back up to 0 one tick at a time)
         m.add_child(LOGIC, T(pc, 'EditVariable', name, 0.0, 0.0, 0.0, 0, 'EditVariable_%d.nValue < 0' % pc if rule else '', ''))
     if STAGED:
@@ -392,35 +352,6 @@ def cast(men, pin=None):
     return out
 
 
-def _groups(m):
-    """soldier id -> answering group number (1..N): the squad that holds him, split into posts where every two men stood within
-    GROUP_NEAR of each other at level start (G48, ss-judge W9-1). Positions are HumanSoldier arguments 3..5 (world units, WU_M a metre)"""
-    from mission_lib import tasks, lit
-    squad = {}
-    for t_, d_, p_ in tasks(m.stmts):
-        if lit(t_.args[1]) == 'HumanSoldier':
-            pos = tuple(float(lit(x)) for x in t_.args[3:6])
-            squad.setdefault(lit(p_.args[0]) if p_ is not None and p_.name == 'Task_New' else -1, []).append((lit(t_.args[0]), pos))
-    out, n, wide = {}, 0, 0
-    lim = (GROUP_NEAR * WU_M) ** 2
-    d2 = lambda a, b: sum((x - y) ** 2 for x, y in zip(a, b))
-    for sid, mates in sorted(squad.items()):
-        posts = []                                            # (every member of a post within GROUP_NEAR of every other)
-        for hid, pos in sorted(mates):
-            post = next((p for p in posts if sid != -1 and all(d2(pos, q) <= lim for h_, q in p)), None)
-            if post is None:
-                posts.append([(hid, pos)])
-            else:
-                post.append((hid, pos))
-        wide += len(posts) > 1
-        for p in posts:
-            n += 1
-            for hid, pos in p:
-                out[hid] = n
-    print('ssvoices: %d answering groups over %d squads (%d squads split, posts within %.0f m)' % (n, len(squad), wide, GROUP_NEAR))
-    return out
-
-
 def ai(g):
     """call after sstalk.ai, before m.write: each soldier's script gets the prefix of his own voice"""
     from alarmai import Bin, C, EQ, AND, If, EV, _in, E, compile_ai, decompile_ai
@@ -429,24 +360,6 @@ def ai(g):
     var = lambda key: 'EditVariable_%d.nValue' % g[key]
     bk, cool, incs = 'EditVariable_%d.nValue' % B['bk'], 'EditVariable_%d.nValue' % B['cool'], 'EditVariable_%d.nValue' % g['ST_INCS']
     pain, rest, same, last, hit, die, order = (var(k_) for k_ in ('SV_PAIN', 'SV_REST', 'SV_SAME', 'SV_LAST', 'SV_HIT', 'SV_DIE', 'SV_ORDER'))
-    rrest, calm, osq = var('SV_RREST'), var('SV_CALM'), var('SV_OSQ')
-    # G48 (orchestrator 11-15): the mission's own HOLD flag. g['SV_HOLD'] = the name of a level symbol (say 'EditVariable_1234.nValue')
-    # that the mission keeps at 0 and sets to anything else while a story radio line plays in play (Anya's objective lines): no shout
-    # starts while it is not 0. Nothing is queued: the event is dropped and the next one after the hold speaks, behind the usual gate.
-    # Hit cries and death sounds are never held. Not set = no hold (the cutscene gate, sstalk's ST_INCS, is separate and stays).
-    # (a tuple of symbols is taken too: an engine string argument is cut at 1023 characters, so a mission with many voiced lines
-    #  needs two variables for its rule; Sandstorm's 16 lines do)
-    hold = g.get('SV_HOLD') or ()
-    hold = (hold,) if isinstance(hold, str) else tuple(hold)
-    assert all(re.match(r'[A-Za-z]\w*_\d+\.\w+$', h_) for h_ in hold), "ssvoices: g['SV_HOLD'] must be symbols like 'EditVariable_1234.nValue', not an expression: %r" % (hold,)
-    print('ssvoices: shouts hold while %s is not 0' % ' / '.join(hold) if hold else "ssvoices: no hold flag (g['SV_HOLD'] not set)")
-    # G48 (reviewer 11-15): the calm clock holds ALARM_HOLD ticks from AIEVENT_ALARMON, which is Sandstorm's whole alarm (60 s). A mission
-    # whose alarm runs longer may name its alarm state: g['SV_ALARM'] = one symbol or a tuple of symbols, each 0 while no alarm is on.
-    # The calm pools are then also silent while any of them is not 0. Not set = the clock alone.
-    alarm = g.get('SV_ALARM') or ()
-    alarm = (alarm,) if isinstance(alarm, str) else tuple(alarm)
-    assert all(re.match(r'[A-Za-z]\w*_\d+\.\w+$', a_) for a_ in alarm), "ssvoices: g['SV_ALARM'] must be symbols like 'EditVariable_1234.nValue': %r" % (alarm,)
-    print('ssvoices: calm lines also wait while %s is not 0' % ' / '.join(alarm) if alarm else "ssvoices: no alarm symbol (g['SV_ALARM'] not set): the calm clock alone")
     ev = C('AIFunction_GetCurrentEventType')
     # TIMES: the same sound started N times in one script run adds up in the mixer (+6 dB for two). The clips are at full scale and
     # DefineSound volume is capped at 1, so this is the only way left to lift a shout over the gunfire (rig 11-13: shouts 13 dB under it)
@@ -465,7 +378,7 @@ def ai(g):
     n_young = len(FAMILY.get('young', ()))
     assert [v['family'] for v in VOICES[:n_young]] == ['young'] * n_young, 'voices.json: the young voices come first'
 
-    def prefix(vid, f, grp):
+    def prefix(vid, f):
         vn = [v['id'] for v in VOICES].index(vid) + 1
         blk = None
         for (f2, k), (code, evs, lines, turn) in reversed(list(SV.items())):
@@ -477,27 +390,20 @@ def ai(g):
             else:
                 tv = 'EditVariable_%d.nValue' % turn
                 then += [If(EQ(tv, n_), play(defname(vid, w))) for n_, (w, en) in enumerate(lines)]
-                then.append(If(Bin('<', E(tv), E(len(lines) - 1)), [Bin('=', E(tv), Bin('+', E(tv), E(1)))]) if (f, k) in ONCE else step(tv, len(lines)))
-            if (f, k) in ORDERS:                               # (G48: the order opens the answer window for the giver's own group only)
-                then += [Bin('=', E(order), neg(ORDER_WIN)), Bin('=', E(osq), E(grp))]
+                then.append(step(tv, len(lines)))
+            if (f, k) in ORDERS:
+                then.append(Bin('=', E(order), neg(ORDER_WIN)))
             if k == 'reply':
-                then += [Bin('=', E(order), E(0)), Bin('=', E(rrest), neg(REPLY_REST))]
-            if k in CALM:                                     # (G48: a calm line winds the calm clock: the calm pools' own rest)
-                then.append(If(one_in(2), [Bin('=', E(calm), neg(REST[0]))], [Bin('=', E(calm), neg(REST[1]))]))
+                then.append(Bin('=', E(order), E(0)))
             if k in FLOOD or (f, k) in FLOOD:
                 # a typed man may go EARLY ticks sooner, but only after a common soldier's shout (voices 1..N_YOUNG): a typed man who
                 # went early and reset the clock every time left the soldiers' pools silent for the whole fight (reviewer 11-13)
                 ready = EQ(rest, 0) if f == 'young' else OR(EQ(rest, 0), AND(Bin('>', E(rest), neg(EARLY)), Bin('<=', E(last), E(n_young))))
                 then = [If(ready, then + [If(one_in(2), [Bin('=', E(rest), neg(REST[0]))], [Bin('=', E(rest), neg(REST[1]))])])]
             on = _in(ev, *[EV(e_) for e_ in evs])
-            if k == 'reply':
-                on = AND(on, Bin('<', E(order), E(0)), EQ(rrest, 0), EQ(osq, grp))
-            if k in CALM:
-                on = AND(on, EQ(calm, 0), *[EQ(a_, 0) for a_ in alarm])
-            blk = If(on, then, [blk] if blk else None)
+            blk = If(AND(on, Bin('<', E(order), E(0))) if k == 'reply' else on, then, [blk] if blk else None)
         # the gate: nobody is shouting, the cooldown is over, no cutscene, and the last shout was another voice (or 12 s ago)
-        free = [EQ(bk, 0), EQ(cool, 0), EQ(incs, 0)] + [EQ(h_, 0) for h_ in hold]
-        pre = [If(AND(*(free + [OR(Bin('!=', E(last), E(vn)), EQ(same, 0))])), [blk])] if blk else []
+        pre = [If(AND(EQ(bk, 0), EQ(cool, 0), EQ(incs, 0), OR(Bin('!=', E(last), E(vn)), EQ(same, 0))), [blk])] if blk else []
         if STAGED and f == 'young':
             seq = [_stage_def(i) for i in STAGED]
         else:
@@ -514,9 +420,6 @@ def ai(g):
         if HITPART_DBG:
             cry = [If(EQ(C('AIFunction_GetScriptIntegerValue', -2), n_), play(defname(VOICES[0]['id'], w_))) for n_, w_ in enumerate(DBG_WORDS)]
         pre.insert(0, If(AND(EQ(ev, EV('TAKINGDAMAGE')), mine, EQ(pain, 0), EQ(incs, 0)), [Bin('=', E(pain), neg(PAIN_GAP))] + cry))
-        # G48: the level's calm clock, wound back by every man's own fight events and by the alarm, outside every gate
-        pre.insert(0, If(_in(ev, *[EV(e_) for e_ in FIGHT_EVS]), [If(Bin('>', E(calm), neg(FIGHT_HOLD)), [Bin('=', E(calm), neg(FIGHT_HOLD))])],
-                         [If(EQ(ev, EV('ALARMON')), [Bin('=', E(calm), neg(ALARM_HOLD))])]))
         dead = [If(EQ(die, n_), play(defname(vid, s_))) for n_, s_ in enumerate(DEATH_SEQ) if s_ and vclip(vid, s_)]
         if HITPART and vclip(vid, 'd2'):
             head = [If(_in(die, *range(0, len(DEATH_SEQ), 2)), play(defname(vid, 'd2')))]
@@ -531,7 +434,6 @@ def ai(g):
     if 'U comms' in g.get('SQUAD_IDS', {}):
         pin[g['SQUAD_IDS']['U comms'][1][0]] = 'radio'
     who = cast(men, pin)
-    groups = _groups(m)
     n, by = 0, {}
     for key, data in list(m.ai_files.items()):
         if not key.isdigit() or not isinstance(data, (bytes, bytearray)) or key not in men or men[key][0] not in who:
@@ -540,7 +442,7 @@ def ai(g):
         vid = who[hid]
         f = next(v['family'] for v in VOICES if v['id'] == vid)
         ver, body = decompile_ai(bytes(data))
-        m.ai_files[key] = compile_ai(prefix(vid, f, groups[hid]) + body, ver)
+        m.ai_files[key] = compile_ai(prefix(vid, f) + body, ver)
         by[vid] = by.get(vid, 0) + 1
         n += 1
     g['SV_MEN'], g['SV_CAST'] = by, who

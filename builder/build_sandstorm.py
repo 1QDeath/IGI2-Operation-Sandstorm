@@ -77,16 +77,6 @@ added = m.import_decls(L1)
 
 # doors: the MP map opens/locks them per multiplayer objective -> single-player rules
 COVERAI = os.environ.get('SS_COVERAI', '0') == '1'       # (N8 ss-life 11-15: squads that have Jones fight from where they are (HoldArea) instead of being re-sent into his cell; A/B take first)
-LIFTG = os.environ.get('SS_LIFTG', '0') == '1'           # (off-node men, ss-life 11-17: graph 7's box began at x 164, the top lift landing (x 159-161) where the two lift
-                                                          #  sentries 1211 / 1213 stand fell outside it: 9.2 / 7.6 m to the nearest node (islands, ssb3), alerted they walk straight at the cab corner. Box x0 158 = 11 landing
-                                                          #  nodes (navcache 11-14), guards 0.9 / 1.4 m off a node, none in the cab. Default OFF until orch-2's word (no build yet))
-TRKARR = os.environ.get('SS_TRKARR', '0') == '1'         # (N6 ss-life 11-17: the tailgate men and the riders swap on a TIMER (planned arrival + 1 s) at spots behind the PLANNED stop;
-                                                          #  a hit halts the truck short of it (halt_guides), so in the hit shot two men popped up beside Jones's body with no truck there
-                                                          #  (REVIEW_intro_mid_rc7s24 #11, 90.30 s). Flag: they swap only once the truck is at its last node, as the driver already does.
-                                                          #  Condition strings only: no task id, no rng draw. Default OFF until orch-2's word (no build yet))
-DEADHOLD = os.environ.get('SS_DEADHOLD', '0') == '1'     # (N15 ss-life 11-17: after Jones dies the hunt kept sending squads to the two nodes of the zone that holds his body every
-                                                          #  14 s: men walked to and fro across it under the death camera (ss_full2 9:20). Flag: every hunting squad holds its area
-                                                          #  once he is dead (alarmai dead_hold). No task id, no rng draw; HumanPlayer_0.isDead read in a squad script is new: A/B take first)
 RQ7 = os.environ.get('SS_RQ7', '1') == '1'               # (RQ7 / N9 ss-life 11-16: the engine KILLS a man ordered to a node he cannot path to (humanai.c 10963-10972, 0.4 + 1.0 = the logged 1.4).
 LOBBY_G = 13                                              #  ssloot.cut_graph split graph 1 into islands (lobby 21 + armoury 13 nodes) after the hunt was built on it. Now: the armoury leaves are
                                                           #  closed at navgen (no door nodes, no links), the large-house lobby gets its own AIGraph LOBBY_G (the armoury's nodes left out),
@@ -125,13 +115,24 @@ START = (358558.34, -90150.51, 400.0)
 START_GAMMA = 0.0                                         # facing north, up the canyon towards the south compound
 # owner 11-01: no sniper at the start (a silenced PSG1 made it trivial) - silenced SOCOM sidearm + M16A2, knife, binoculars,
 # grenades / flashbangs, medipacks. Better guns are in the base (the snipers' Dragunovs, the Minimi gunners).
-LOADOUT = ['Human_AddWeapon("WEAPON_ID_SOCOM")', 'Human_AddWeapon("WEAPON_ID_M16A2")', 'Human_AddWeapon("WEAPON_ID_KNIFE")',
-           'Human_AddWeapon("WEAPON_ID_BINOCULARS")', 'Human_AddWeapon("WEAPON_ID_THERMICAL")',   # (11-01: goggles back - T = Thermal)
-           'Human_AddWeapon("WEAPON_ID_GRENADE")', 'Human_AddWeapon("WEAPON_ID_FLASHBANG")',
-           'Human_AddWeapon("WEAPON_ID_MEDIPACK")',
-           'Human_AddAmmoForWeapon("WEAPON_ID_SOCOM",60)', 'Human_AddAmmoForWeapon("WEAPON_ID_M16A2",150)',
-           'Human_AddAmmoForWeapon("WEAPON_ID_GRENADE",4)', 'Human_AddAmmoForWeapon("WEAPON_ID_FLASHBANG",2)',
-           'Human_AddAmmoForWeapon("WEAPON_ID_MEDIPACK",3)']
+# fix1123b R2 (owner 11-23: "add the 3 grenades in my gun in number 1, and remove the grenades from the inventory and the syringe too"):
+# the M16A2 IS the original game's M16A2 + M203 (AlternateFire = right mouse); its launcher rounds = AMMO_ID_M203CLIP, given the originals' way
+# (L14 location1_level4 'Human_AddAmmo("AMMO_ID_M203CLIP", 2)', L16 '..., 5'). AddWeapon alone = 1 loaded + 1 in reserve (HUD slot 1 reads x/1, co file b3c);
+# +2 fills the reserve to its cap 3 -> HUD slot 1 reads x/3 (+1 in the tube). No hand grenades, no flashbangs, no medi syringe at the start
+# (pickups in the level stay). SS_FIX1123B_KIT=0 = the f1123_1 kit.
+if os.environ.get('SS_FIX1123B_KIT', '1') == '1':
+    LOADOUT = ['Human_AddWeapon("WEAPON_ID_SOCOM")', 'Human_AddWeapon("WEAPON_ID_M16A2")', 'Human_AddWeapon("WEAPON_ID_KNIFE")',
+               'Human_AddWeapon("WEAPON_ID_BINOCULARS")', 'Human_AddWeapon("WEAPON_ID_THERMICAL")',   # (11-01: goggles back - T = Thermal)
+               'Human_AddAmmoForWeapon("WEAPON_ID_SOCOM",60)', 'Human_AddAmmoForWeapon("WEAPON_ID_M16A2",150)',
+               'Human_AddAmmo("AMMO_ID_M203CLIP", 2)']
+else:
+    LOADOUT = ['Human_AddWeapon("WEAPON_ID_SOCOM")', 'Human_AddWeapon("WEAPON_ID_M16A2")', 'Human_AddWeapon("WEAPON_ID_KNIFE")',
+               'Human_AddWeapon("WEAPON_ID_BINOCULARS")', 'Human_AddWeapon("WEAPON_ID_THERMICAL")',   # (11-01: goggles back - T = Thermal)
+               'Human_AddWeapon("WEAPON_ID_GRENADE")', 'Human_AddWeapon("WEAPON_ID_FLASHBANG")',
+               'Human_AddWeapon("WEAPON_ID_MEDIPACK")',
+               'Human_AddAmmoForWeapon("WEAPON_ID_SOCOM",60)', 'Human_AddAmmoForWeapon("WEAPON_ID_M16A2",150)',
+               'Human_AddAmmoForWeapon("WEAPON_ID_GRENADE",4)', 'Human_AddAmmoForWeapon("WEAPON_ID_FLASHBANG",2)',
+               'Human_AddAmmoForWeapon("WEAPON_ID_MEDIPACK",3)']
 PLAYER = T(0, 'HumanPlayer', '', START[0], START[1], START[2], START_GAMMA, 'jones2_1', 0, ',\n'.join(LOADOUT) + ';',
            'arms2_1', 0.8, 0.2, 0.95, False, children=[T(nid(), 'HumanPlayerInput', '', '', '')])
 PC = nid()
@@ -355,7 +356,7 @@ m.add_child(HALL, T(nid(), 'EditRigidObj', 'SS missile service gantry', *V.U((SB
 TELS = []
 for _k, (_tx, _ty) in enumerate(SB.TEL_SPOTS):
     _tid = nid(); TELS.append(_tid)
-    m.add_child(HALL, T(_tid, 'EditRigidObj', 'SS launch truck %d' % (_k + 1), *V.U((_tx, _ty, SB.F)), 0.0, 0.0, 0.0,
+    m.add_child(HALL, T(_tid, 'EditRigidObj', 'SS launch truck %d' % (_k + 1), *V.U((_tx, _ty, SB.F)), 0.0, 0.0, math.pi,   # (fix1120 W5: owner 11-20 marks 31-36 'turn them to face the other way': cabs to the blast gate (east), yaw 0 -> pi; same footprint)
                         'ss_telr_1' if _k == 1 else 'ss_tel_1', 5, False, False))
 # --- owner 11-04 'the train is not on the railway': a ballast bed under the whole line, the rails on top of it, buffer stops at its end (before navgen)
 TR_Y = 203.0
@@ -369,10 +370,6 @@ for _k, _bm in enumerate(SB.bed_meshes(358.0, 568.0, _bedy, RAIL_Z - 0.12)):
 _dr1 = SB.drift(362.0, 381.0, _bedy, RAIL_Z)
 _VLIB.add('ss_drift_1', lambda: _dr1.model(), _dr1.slots, lod_like='406_68_1')
 m.add_child(HALL, T(nid(), 'EditRigidObj', 'SS sand over the line', *V.U(_dr1.o), 0.0, 0.0, 0.0, 'ss_drift_1', 5, False, False))
-if os.environ.get('SS_RAIL_EAST', '0') == '1':             # (N3 11-17 ss-ending, default OFF = installed: east of x ~533 the ballast is under the dune before the
-    _dr2 = SB.drift_east(530.5, 533.0, 550.0, _bedy, RAIL_Z + 0.18, _bh)   #  sleepers and rail heads (top RAIL_Z + 0.18): ~10 m of bare rails taper into the sand; a sand mound over them)
-    _VLIB.add('ss_drift2_1', lambda: _dr2.model(), _dr2.slots, lod_like='406_68_1')
-    m.add_child(HALL, T(nid(), 'EditRigidObj', 'SS sand over the line east', *V.U(_dr2.o), 0.0, 0.0, 0.0, 'ss_drift2_1', 5, False, False))
 # (critic rv12: the run to the train is empty dunes) a pump hut and scattered crates give it cover and a reason
 for _nm, _md, _x, _y, _yw in (('SS pump hut', '432_10_1', 352.0, 182.0, 0.5), ('SS trackside crates 1', '330_01_1', 338.0, 188.0, 0.4), ('SS trackside crates 2', '330_02_1', 339.6, 186.8, 1.0),
                               ('SS trackside crates 3', '330_01_1', 366.0, 193.0, 0.2), ('SS trackside crates 4', '330_01_1', 372.0, 196.0, 0.9)):
@@ -425,7 +422,7 @@ _, BK_MERGED = X.finish(os.path.join(HERE, 'work', 'sandstorm', 'navstage'))
 BW = lambda lx, ly, lz=0.0: V.U((238.0 + lx, 225.0 + ly, SB.F + lz))
 BK_FOOT, BK_RING, BK_TEND, BK_FAR = 0.0, 0.0, 0.0, 30.0
 def bk_blocked(x_u, y_u):
-    return bool(SB.GUNROOM and GN.S14B_ON and GN.screen_blocked(x_u, y_u))   # (S14 decision 91: graph 6 drops nodes on / links through the lobby barricade)
+    return bool(SB.GUNROOM and GN.S14B_ON and GN.screen_blocked(x_u, y_u))   # (S14 decision 91, fix1120 L12 hand port of main 26fb84e: graph 6 drops nodes on / links through the lobby barricade)
 # (S15 owner 11-15 'enemies walk through cars': the two troop trucks park ON the long-ramp floor the graph was made from, and a walking
 #  soldier follows the link, not the collision. Their stop poses only need TUN / SB.POST_S / TK.STOPS, so they are made here, before the graphs)
 _trs = np.arange(SB.POST_S - 16.0, TK.STOPS[0] - 1.0 if TRUCKS2 else 27.0, -5.0)
@@ -523,7 +520,7 @@ for gid, name, probe, box in [
         (4, 'North tunnel exit', (698126.0, 1558158.0, 61330.0), (400000.0, 1345000.0, 1000000.0, 1640000.0)),
         (5, 'Hill house roof', (484900.0, 337500.0, 96290.0), (440000.0, 300000.0, 530000.0, 375000.0)),
         (6, 'Missile base (underground)', V.U((205.0, 225.0, SB.F)), (170.0 * 4096, 195.0 * 4096, 269.0 * 4096, 257.0 * 4096)),
-        (7, 'Machine room and stairs', V.U((182.0, 231.0, V.TOP_Z)), ((158.0 if LIFTG else 164.0) * 4096, 216.0 * 4096, 193.0 * 4096, 242.0 * 4096)),
+        (7, 'Machine room and stairs', V.U((182.0, 231.0, V.TOP_Z)), (164.0 * 4096, 216.0 * 4096, 193.0 * 4096, 242.0 * 4096)),
         (8, 'East plain by the train', (440.0 * 4096, 232.0 * 4096, _bh(440.0, 232.0) * 4096), (300.0 * 4096, 140.0 * 4096, 476.0 * 4096, 262.0 * 4096)),
         (9, 'Truck tunnel checkpoint', V.U(TUN.at(SB.POST_S - 12.0)[:3]), (240.0 * 4096, 120.0 * 4096, 270.0 * 4096, 195.0 * 4096))] + ([(11, 'Long ramp', V.U(TUN.at(100.0)[:3]), (262.0 * 4096, 40.0 * 4096, 345.0 * 4096, 240.0 * 4096))] if TRUCKS2 else []) + ([(GN.ROOM_G, 'Gun room', V.U((172.3, 226.6, GN.FZ)), (168.0 * 4096, 218.0 * 4096, 176.0 * 4096, 235.0 * 4096))] if SB.GUNROOM else []) + ([(LOBBY_G, 'Large house lobby', (318546.0, 482550.0, 18964.0), (278528.0, 421888.0, 360448.0, 532480.0))] if RQ7 else []):
     comp = region_graph(probe, box)
@@ -882,6 +879,26 @@ print('v5 finale: vehicle gate %d, code pad %d' % (VGATE, GATE_PAD))
 TR_LINE = rail.Line([(372.0, TR_Y), (420.0, TR_Y), (470.0, TR_Y), (520.0, TR_Y), (570.0, TR_Y), (620.0, TR_Y)], RAIL_Z)
 if OUTRO2:
     _SO.use_consist(); _SO.prepare(globals())
+# ---- fix1122-world B3 (owner 11-22 mark 23: 'the machine gun is a block and a pipe'): the MG flatcar keeps its deck, bags and a short pedestal; the gun on it is
+#      the ORIGINAL M2HB (holder 112_02_1 + gun 112_01_1, location2/LEVEL5, L25's door-gun pair), two EditRigidObj children of the car (they ride its departure path
+#      like the outro's doors and riders). Sandstorm only: srtrain.build_flat (Sirocco's) is not touched
+if os.environ.get('SS_F1122_W', '1') == '1':
+    def _f1122_flat():
+        c_ = STR.Car(STR.LENGTH[STR.FLAT]); h_ = c_.h
+        STR.under(c_, h_); STR.floor(c_, -h_, h_, slot=STR.S_STEEL)
+        for sx_ in (-1, 1):
+            c_.add(STR.S_OLIVE, STR.B(sx_ * STR.HW - (0.35 if sx_ > 0 else 0), -h_ + 1.0, STR.FLOOR_Z, sx_ * STR.HW + (0.35 if sx_ < 0 else 0), h_ - 1.0, STR.FLOOR_Z + 0.85))
+        for x0_, x1_, y0_, y1_ in ((0.55, 1.15, -1.6, -1.1), (0.55, 1.15, 1.1, 1.6)):
+            c_.add(STR.S_OLIVE, STR.B(x0_, y0_, STR.FLOOR_Z, x1_, y1_, STR.FLOOR_Z + 0.85))
+        c_.add(STR.S_STEEL, STR.BP.cyl_z(0.16, STR.FLOOR_Z, STR.FLOOR_Z + 0.75, 10, 0.85, 0.0))      # the pedestal, up to the holder's foot (112_02_1: -0.58 under its pivot)
+        for ey_, s_ in ((-h_, 1), (h_, -1)):
+            for x0_, x1_ in ((-STR.HW, -STR.DOOR_HW), (STR.DOOR_HW, STR.HW)):
+                c_.add(STR.S_STEEL, STR.B(x0_, min(ey_, ey_ + s_ * 0.06), STR.FLOOR_Z, x1_, max(ey_, ey_ + s_ * 0.06), STR.FLOOR_Z + 1.0))
+        return c_.model()
+    STR.BUILD = dict(STR.BUILD); STR.BUILD[STR.FLAT] = _f1122_flat
+    X.models('location2/LEVEL5', ['112_02_1', '112_01_1'])
+    F1122_MG = (0.85, 0.0, STR.FLOOR_Z + 1.33)                 # car frame (m): pivot over the pedestal; barrel along +x, out over the side bags
+# ---- end fix1122-world B3 models
 STR.add_textures(_VLIB); STR.add_models(_VLIB)
 for _tn, _c, _sd in (('sr_ochre', (0.62, 0.45, 0.25), 41), ('sr_olive', (0.32, 0.31, 0.20), 42), ('sr_rust', (0.45, 0.21, 0.14), 43)):
     _VLIB.texture(_tn, (lambda c_, s_: (lambda: SB.tex_car(c_, s_)))(_c, _sd))
@@ -1429,9 +1446,7 @@ _acc, _atm = _atmos.blink(m, nid, LOGIC, 1.2, 0.6, _aglow, name='SS base alert b
 m.set(_acc, 3, 'LevelTimer_%d.nTick < 0.6 * GAME_FREQUENCY && EditVariable_%d.nValue == 1' % (_atm, U_ALARM))
 import weather as _weather_h
 _weather_h.hearing(0.35)                                   # (owner 11-03 r3: the garrison below reacts only to what happens down there)
-squad('U machine room', 7, (170 * 4096.0, 232.4 * 4096.0), 16000.0, [AK, SG, AK], C3N, CSF, where='in', alarm=False, calm_var=_UA,
-      patrol=0.0 if LIFTG else 0.5)   # (owner: guards at the lift. SS_LIFTG: the wider graph 7 would give them a patrol route = extra rng draws + task ids
-                                      #  ahead of m.squad, every later id and pick shifted (reviewer 11-17); 0.0 keeps the draw and loses it, as the old graph did)
+squad('U machine room', 7, (170 * 4096.0, 232.4 * 4096.0), 16000.0, [AK, SG, AK], C3N, CSF, where='in', alarm=False, calm_var=_UA)   # (owner: guards at the lift)
 squad('U lift landing', 6, _ru(190.0, 244.5), 9000.0, [HK, AK], C3N, CSFM, alarm=False, talk=True, calm_var=_UA)   # (cb1: at 7 m from the doorway their rifle grenade killed Jones in his first 4 s, in the reveal: moved off, no AKG below until the alert)
 squad('U silo post', 6, _ru(238.0, 232.0), 9000.0, [AK], C3N, CSF, alarm=False, patrol=1.0, calm_var=_UA)   # (owner 32: some walk around)
 if GARRISON2:
@@ -1552,20 +1567,6 @@ for _h, (_gx, _gy, _gg, _clip) in zip(_lh, LIFT_GUARDS):
                                 [Call('AIFunction_SetStandActionAnimation', [Str(_clip)]), alarmai.C('AIAction_PlayAnimation', 1, 0)]),
                      alarmai.C('AIFunction_PassEventOnToSquad')],
                     [alarmai.C('AIFunction_DefaultHandler')])])])
-if LIFTG:                                                 # (off-node men: the lift sentries stand on graph 7 now, and no node or link of it is in the lift cab / shaft)
-    _g7 = {n_['id']: n_['pos'] for n_ in GRAPHS[7]}
-    _hx, _hy = (V.CAB[2] - V.CAB[0]) / 2 + 0.3, (V.CAB[3] - V.CAB[1]) / 2 + 0.3    # (LIFT_C = the cab's CENTRE (ssv4 place_lift), LIFT_YAW pi keeps the axes; 0.3 m margin)
-    _cx0, _cx1, _cy0, _cy1 = V.LIFT_C[0] - _hx, V.LIFT_C[0] + _hx, V.LIFT_C[1] - _hy, V.LIFT_C[1] + _hy
-    _incab = lambda x_, y_: _cx0 < x_ < _cx1 and _cy0 < y_ < _cy1
-    for _h, (_gx, _gy, _gg, _clip) in zip(_lh, LIFT_GUARDS):
-        _d = min(math.hypot(q_[0] / 4096.0 - _gx, q_[1] / 4096.0 - _gy) for q_ in _g7.values() if abs(q_[2] / 4096.0 - V.TOP_Z) < 0.5)
-        assert _d < 2.0, 'off-node men: lift sentry %d is %.1f m from graph 7' % (_h, _d)
-        print('off-node men: lift sentry %d is %.1f m from graph 7' % (_h, _d))
-    _bad = [k_ for k_, q_ in _g7.items() if _incab(q_[0] / 4096.0, q_[1] / 4096.0)]
-    _bad += [(a_, b_) for a_, b_ in GEDGES[7] if any(_incab((_g7[a_][0] + (_g7[b_][0] - _g7[a_][0]) * t_) / 4096.0, (_g7[a_][1] + (_g7[b_][1] - _g7[a_][1]) * t_) / 4096.0)
-                                                for t_ in np.linspace(0.0, 1.0, 24))]
-    assert not _bad, 'off-node men: graph 7 nodes / links in the lift cab: %s' % _bad[:8]
-    print('off-node men: graph 7 %d nodes, none in the lift cab (x %.1f-%.1f, y %.1f-%.1f)' % (len(_g7), _cx0, _cx1, _cy0, _cy1))
 import diffscale as _ds
 from igiqvm import Flt as _Flt
 _n = 0
@@ -1606,7 +1607,7 @@ for key_ in ('S generator A yard', 'S storage house', 'S garage and east gate', 
             break
     else:
         print('alarm button: no wall by %s' % key_)
-HUNT.build(loud_alarm=GARRISON2, fight_gate=COVERAI, dead_hold=DEADHOLD)
+HUNT.build(loud_alarm=GARRISON2, fight_gate=COVERAI)
 HUNT2 = GR.alert(globals()) if GARRISON2 else None
 if GARRISON2:
     GR.eyes(globals())
@@ -1950,11 +1951,38 @@ _SLIB.add('ss_bkh_1', _ss_bulkhead, ['ss_bk_conc', 'jr_steel', 'jr_white'], lod_
 _SLIB.add('ss_cab_1', lambda: _ss_cable(6.0), ['jr_rubber'], lod_like='406_68_1')
 _SLIB.add('ss_lamp_1', _ss_lamp, ['jr_dark', 'jr_white'], lod_like='406_68_1')
 _SLIB.add('ss_pole_1', _ss_pole, ['jr_steel'], lod_like='406_68_1')
+# ---- fix1122-world B7 (owner 11-22 marks 62-63, propaudit SUNK 703 / 1100): masts cut to the camera's height (2..7 m) instead of one 8 m mast buried up to 13 m
+F1122_W = os.environ.get('SS_F1122_W', '1') == '1'
+def _ss_pole_n(h_):
+    return _MK.model([(0, [_cyl(0.07, 0.0, h_, 10), _box(-0.12, -0.12, h_ - 0.08, 0.12, 0.12, h_)])], [_cyl(0.08, 0.0, h_, 8)])
+F1122_POLES = {n_: 'ss_pol%d_1' % n_ for n_ in range(2, 8)} if F1122_W else {}
+for _f1122_pn, _f1122_pmod in F1122_POLES.items():        # (own names: _pm is the tunnel checkpoint mesh a lazy lambda reads at X.finish)
+    _SLIB.add(_f1122_pmod, (lambda h_: (lambda: _ss_pole_n(float(h_))))(_f1122_pn), ['jr_steel'], lod_like='406_68_1')
+# ---- end fix1122-world B7 models
+# ---- fix1123-world models (owner 11-23 review of f1122_1; worker fix1123-world). SS_F1123_W=0 = f1122_1
+F1123_W = os.environ.get('SS_F1123_W', '1') == '1'
+if F1123_W:
+    # W3 (marks 7-8, 'the camera rests on air / on a pipe'): the soft holder 335_01_1 is a WALL bracket (its plate 0.215 m behind the origin, tools/sscams.py
+    #  SOFT_PLATE); on a 7 cm pipe under its middle it sat on nothing. A square 20 cm steel post BEHIND the plate, the plate bolted to its face, like the
+    #  originals' cameras on a wall or a building corner. One model per height (2..7 m, the foot 0.15-1 m into the ground)
+    def _f1123_post(h_):
+        return _MK.model([(0, [_box(-0.10, -0.10, 0.0, 0.10, 0.10, h_), _box(-0.13, -0.13, h_ - 0.04, 0.13, 0.13, h_),
+                               _box(-0.16, 0.10, h_ - 0.62, 0.16, 0.115, h_ - 0.06)])], [_box(-0.10, -0.10, 0.0, 0.10, 0.10, h_)])
+    #  No new model names (w1123_1 died on ssprune: LOD table 605 of 600): B7's mast models ss_pol2..7_1 take this post's mesh. Their lambdas call
+    #  _ss_pole_n at X.finish, so redefining it here is what they build (only camera mounts use ss_pol*_1)
+    def _ss_pole_n(h_):
+        return _f1123_post(h_)
+    F1123_POSTS = dict(F1122_POLES)
+    # W7 (marks 15-16, 'walking slowly onto the lift is like dropping off a step'): a 0.2 m open gap between the landing floors and the lift's floor
+    #  (measured: corridor / shaft floor ends at x 163.0-163.1 and starts at 167.7-167.8, the lift floor spans 163.22-167.54). A 2 cm steel sill fills it
+    _SLIB.add('ss_sill_1', lambda: _MK.model([(0, [_box(-0.13, -1.45, -0.02, 0.13, 1.45, 0.0)])], [_box(-0.13, -1.45, -0.02, 0.13, 1.45, 0.0)]),
+              ['jr_steel'], lod_like='406_68_1')
+# ---- end fix1123-world models
 _SLIB.add('ss_crd_1', _ss_cradle, ['jr_olive'], lod_like='406_68_1')
 _SLIB.add('ss_mis_1', lambda: _JM.build_missile(False), ['jr_misw', 'jr_white'], lod_like='406_68_1')
 _SLIB.add('ss_fcc_1', _JM.build_fcc, ['jr_olive', 'jr_console', 'jr_dark'], lod_like='406_68_1')
 _SLIB.add('ss_flag_1', _ss_flag, ['jr_steel', 'ss_flagt'], lod_like='406_68_1')
-_SLIB.add('ss_flagr_1', lambda: _ss_flag_s(3.2, 1.2, 0.8, 0.035), ['jr_steel', 'ss_flagt'], lod_like='406_68_1')
+_SLIB.add('ss_flagr_1', (lambda: _ss_flag_s(4.6, 2.1, 1.4, 0.045)) if F1122_W else (lambda: _ss_flag_s(3.2, 1.2, 0.8, 0.035)), ['jr_steel', 'ss_flagt'], lod_like='406_68_1')   # (fix1122-world B6, owner 11-22 mark 61: 'make the Iraqi flag bigger': 2.1 x 1.4 m on a 4.6 m pole, was 1.2 x 0.8 on 3.2)
 _SLIB.add('ss_flagd_1', lambda: _ss_flag_s(0.42, 0.22, 0.15, 0.005, base=True), ['jr_steel', 'ss_flagt'], lod_like='406_68_1')
 if not ssbay.BAY:                                          # (rc7s ss-loot: with the bay on the chip TBA is re-modelled; slots -> ss_key_1 / ss_note_1)
     _SLIB.add('ss_chipa_1', lambda: _ss_chip(True), ['jr_dark', 'jr_steel', 'ss_cpaint'], lod_like='406_68_1')
@@ -2506,7 +2534,19 @@ for k_ in [k_ for k_ in IK + OK_ if k_.get('tod', -1.0) < 0 and not k_.get('indo
     assert k_['pos'][2] < TERR.height(k_['pos'][0], k_['pos'][1]) + 155.0 * CS.M, ('camera too high: overhead flicker (recon.py)', k_['pos'])
 print('cutscenes: highest camera %.0f m over the ground' % max((k_['pos'][2] - TERR.height(k_['pos'][0], k_['pos'][1])) / CS.M
                                                                 for k_ in IK + OK_ if k_.get('tod', -1.0) < 0 and not k_.get('indoor')))
-CSI = CS.add_intro(m, nid, 4087, IK, ICAP)
+# (fix1123b I1/I2: the cut fall's camera ids are burned right after the intro's own cameras, where the fall's last keys took theirs: add_intro takes
+#  skip, intro, the CutScene, then one id per key, then the captions. So every id from the captions on is the one it had with the fall: no shifts)
+_NOFALL_N = _SI.S.get('nofall_burn', 0) if INTRO2 else 0
+_NOFALL_BURN, _nid_calls = [], [0]
+def _intro_nid():
+    _nid_calls[0] += 1
+    if _nid_calls[0] == 3 + len(IK) + 1 and not _NOFALL_BURN:
+        _NOFALL_BURN.extend(nid() for _ in range(_NOFALL_N))
+    return nid()
+CSI = CS.add_intro(m, _intro_nid if _NOFALL_N > 0 else nid, 4087, IK, ICAP)
+if _NOFALL_BURN:
+    print('fix1123b I1: %d fall camera ids burned after the intro cameras (%d..%d)' % (len(_NOFALL_BURN), min(_NOFALL_BURN), max(_NOFALL_BURN)))
+assert len(_NOFALL_BURN) == max(_NOFALL_N, 0), ('fix1123b I1: burn missed', len(_NOFALL_BURN), _NOFALL_N)
 CSO = CS.add_outro(m, nid, 4087, OK_, OCAP, 'StatusMessage_%d.isFinishedDisplay' % DONE)
 # the two gate guards of the intro: EditBoneObj actors (squads are off in cutscenes), the L11 talking pair clips, their own
 # lines lip-synced (tools/lipsync.py: the StatusMessage 'Morph QTask IDs' = the speaking actor)
@@ -2672,16 +2712,14 @@ if TRUCKS2:
         _v2 = [min(v_, _brake(5.0 * (len(_trv) - 4 - k_))) for k_, v_ in enumerate(_trv[:-3])]
         for _h_, (_tr, _end, _gm, _at, _key) in enumerate(((TROOP, _trp[-1], float(_trg2[-1]), _tt, 'U truck troops 1'), (TROOP2, _trp[-4], float(_trg2[-4]), 7.0 + _sv(), 'U truck troops 2'))):
             _cc = nid()
-            _gd = next(lit(t_.args[0]) for t_, d_, p_ in tasks(m.stmts) if lit(t_.args[1]) == 'SplinePathGuideQTask' and lit(t_.args[4]) == _tr)
-            _arr = 'SplinePathGuideQTask_%d.vPosition >= %.2f' % (_gd, (len(_trp) - 1 if _tr == TROOP else len(_trp) - 4) - 0.05)   # (review 11-13: he climbs out only once his truck has stopped at its last node)
             _tk1 = 'LevelTimer_%d.nTick > %.1f * GAME_FREQUENCY' % (TRK_T, _at + 1.0)
-            if TRKARR:                                     # (N6: no men at the planned stop while a hit has halted the truck short of it; the riders stay on the halted truck)
-                _tk1 = '%s && %s' % (_arr, _tk1)
             TK.crew(m, T, nid, _tr, _trp[0], float(_trg2[0]), CSFM, '!(%s)' % _tk1, actor_driver=False)   # (owner 102: riders gone and real soldiers at the tailgate on the same tick)
             # owner 118: a real driver. L25 carries real soldiers on a moving helicopter (an AIType_OnVehicle squad under it), but a soldier there would not play
             # the seated driving clip - he stood beside the cab (g9dv2, g9dv3). So the cab has dark glass (tools/sstruck.py) and nobody sits at the wheel to be shot;
             # when the truck stops the driver steps down by the far-side door, a real soldier from his first visible frame, and fights with the others
             _ecc = nid()                                   # (owner G09b: he sits at the wheel behind clear glass until the stop, climbs out for TK.CLIMB_S, then stands at the door as a real soldier)
+            _gd = next(lit(t_.args[0]) for t_, d_, p_ in tasks(m.stmts) if lit(t_.args[1]) == 'SplinePathGuideQTask' and lit(t_.args[4]) == _tr)
+            _arr = 'SplinePathGuideQTask_%d.vPosition >= %.2f' % (_gd, (len(_trp) - 1 if _tr == TROOP else len(_trp) - 4) - 0.05)   # (review 11-13: he climbs out only once his truck has stopped at its last node)
             _tkc = '%s && LevelTimer_%d.nTick > %.2f * GAME_FREQUENCY' % (_arr, TRK_T, _at + 0.2)
             _tkd = '%s && LevelTimer_%d.nTick > %.2f * GAME_FREQUENCY' % (_arr, TRK_T, _at + 0.2 + TK.DRIVER_CLIMB_S)
             TK.driver(m, T, _tr, _trp[0], float(_trg2[0]), CSFM[0], '!(%s)' % _tkc, '(%s) && !(%s)' % (_tkc, _tkd))
@@ -2710,7 +2748,7 @@ if TRUCKS2:
             ENEMY_COUNT[0] += len(_mem)
         _ht = alarmai.Hunt(m, nid, GRAPHS, GEDGES, U_ALARM, HUNT2.alarm_control, LOGIC, pfx='ST', cell_m=30.0, reach_m=240.0, distress_m=30.0, backup_m=45.0, run_m=60.0)
         _ht.build(exclude=[s_ for s_ in m.find('AISquad') if s_ not in [SQUAD_IDS[k_][0] for k_ in ('U truck troops 1', 'U truck troops 2', 'U truck troops 1 driver', 'U truck troops 2 driver')]], only_alarmed=False, open_vars=[U_ALARM], cry_alarm=False, loud_alarm=False,
-                  react_fight=[SQUAD_IDS[k_][0] for k_ in ('U truck troops 1', 'U truck troops 2', 'U truck troops 1 driver', 'U truck troops 2 driver')], fight_gate=COVERAI, dead_hold=DEADHOLD)   # (N8)
+                  react_fight=[SQUAD_IDS[k_][0] for k_ in ('U truck troops 1', 'U truck troops 2', 'U truck troops 1 driver', 'U truck troops 2 driver')], fight_gate=COVERAI)   # (N8)
 # --- owner 30: a silenced shot is not heard, but a man who sees his mate go down calls it in: 1.5 s to drop the second man too
 _wit = []
 for _k, _key in enumerate(('U lift landing', 'U room 2', 'U room 3', 'U control room', 'U scientists', 'U tunnel post') if 'noenemies' not in DBG and 'noai' not in DBG else ()):
@@ -2940,6 +2978,80 @@ DECCS = [('ss_dec1', "ANYA: Jones, I decrypted the data. Their camera network go
          ('ss_dec3', "ANYA: And at the bottom of that lift... a missile base. That one is fuelled and on its pad.", ('office', DEC_MAST, DEC_UP)),
          ('ss_dec4', "ANYA: The plan has changed, Jones. Take Kral's laptop, it proves who bought that thing. Then get down there, open the missile cage "
                      "from the control room and pull the guidance chip.", ('office', DEC_CTRL, DEC_CTRL_LOOK, DEC_CTRL_SCI, DEC_CTRL_ZOOM, DEC_CAGE, DEC_CAGE_LOOK, 0.5))]
+# ==== fix1122-story block A (owner 11-22 review of f1120_1, rows C1 + C7; worker fix1122-story). Before the decrypt shots are made ====
+if os.environ.get('SS_FIX1122_STORY', '1') == '1':
+    # --- C1 (pic 6, decrypt shot 1 on the lift room camera): the two lift guards stood one behind the other on the camera's own line (x 159.4,
+    #     y 225.4 / 227.9, facing N / S): one showed his back, the far one read as talking to the corner. They now stand side by side across
+    #     the floor, 1.3 m apart, facing each other (E / W), both in profile to the camera. Live men and the cutscene copies alike; only where the
+    #     nav floor is there at both spots and nothing stands between them, else as before
+    _lg = ((159.3, 226.6, -math.pi / 2, 'stand_talk1'), (160.6, 226.6, math.pi / 2, 'stand_talk2'))
+    _fl = [nv.surface_at(_x * 4096.0, _y * 4096.0, V.TOP_Z * 4096.0, maxdz=0.45 * 4096.0, alive_only=False, radius=0) for _x, _y, _g, _c in _lg]
+    if all(j_ >= 0 and abs(NF['z'][j_] - V.TOP_Z * 4096.0) < 0.3 * 4096.0 for j_ in _fl) and             free_run((_lg[0][0] * 4096.0, _lg[0][1] * 4096.0, V.TOP_Z * 4096.0), _lg[0][2], cap=1.3) >= 1.25:
+        LIFT_GUARDS = _lg
+        for _h, (_gx, _gy, _gg, _clip) in zip(SQUAD_IDS['U machine room'][1][:2], LIFT_GUARDS):
+            m.set(_h, 3, _gx * 4096.0); m.set(_h, 4, _gy * 4096.0); m.set(_h, 6, _gg)
+        print('fix1122 C1: lift guards face to face across the floor %s' % [(g_[0], g_[1]) for g_ in LIFT_GUARDS])
+    else:
+        print('fix1122 C1: WARNING no clear floor for the side-by-side pair (%s): lift guards left as they were' % _fl)
+    # --- C7 (owner: 'after objective 3 show a cutscene from a camera beside the laptop, the laptop and the key, which tells you where to go'):
+    #     the decrypt cutscene (it plays after the hack, objective 3) ends on a new real wall camera in Kral's room beside his table: the laptop and
+    #     the storeroom key on it (the key lies 0.3-0.7 m from the laptop, fix1120 L4). The eye: the bearing (16 tried) where the room's wall is
+    #     1.3-3.5 m from the table, 0.45 m off that wall, 1.25 m over the table top, the laptop in clear sight
+    _TT22 = K._tris()[0]
+    _lap = np.array([CASE_P[0], CASE_P[1], CASE_P[2] + 0.06 * 4096.0], float)
+    # ==== fix1123-story S10 (round-2 film 1:30: the shot looked at the table's middle, CASE_P, where the laptop no longer is: fix1122-use U7 moves it to the
+    #      long side's edge late in the build, the key beside it). The same U7 arithmetic here, on the same table and collision, gives its final spot: the
+    #      camera search, the look and the operator's zoom aim at the laptop + key pair. SS_FIX1123_LAP=0 = as round 2
+    _LAP_ZOOM = None
+    if os.environ.get('SS_FIX1123_LAP', '1') == '1' and os.environ.get('SS_FIX1122U', '1') == '1':   # (U7 runs only with SS_FIX1122U)
+        _kt23 = [i_ for i_ in m.find('EditRigidObj') if str(lit(m.byid[i_].args[2])) == "SS Kral's table"]
+        if _kt23:
+            _tq = [float(lit(m.byid[_kt23[0]].args[k_])) for k_ in (3, 4, 5, 8)]
+            _c23, _fz23 = np.array(_tq[:2]), _tq[2]
+            _tx23, _ty23 = np.array([math.cos(_tq[3]), math.sin(_tq[3])]), np.array([-math.sin(_tq[3]), math.cos(_tq[3])])
+
+            def _free23(p_):
+                ab_, be_ = _atmos._vertical_hits(_TT22, (p_[0], p_[1], _fz23 + 1.9 * 4096.0))
+                return not [z for z in ab_ + be_ if _fz23 + 0.15 * 4096.0 < z < _fz23 + 1.8 * 4096.0]
+            _sd23 = next((s_ for s_ in (1, -1) if _free23(_c23 + (s_ * (0.669 + 0.5) * _tx23 + -0.45 * _ty23) * 4096.0) and _free23(_c23 + (s_ * (0.669 + 0.45) * _tx23 + 0.55 * _ty23) * 4096.0)), 1)
+            _n23 = _sd23 * _tx23
+            _lp23 = _c23 + (_n23 * (0.669 - 0.19) - 0.45 * _ty23) * 4096.0          # (U7: the laptop)
+            _kp23 = _c23 + (_n23 * (0.669 - 0.12) - 0.02 * _ty23) * 4096.0          # (U7: the key beside it)
+            _mid23 = (_lp23 + _kp23) / 2.0
+            _lap = np.array([_mid23[0], _mid23[1], CASE_P[2] + 0.04 * 4096.0], float)
+            print('fix1123 S10: the laptop shot aims at the U7 spot (%.2f, %.2f) (laptop %.2f, %.2f / key %.2f, %.2f), not the table middle (%.2f, %.2f)'
+                  % (_lap[0] / 4096, _lap[1] / 4096, _lp23[0] / 4096, _lp23[1] / 4096, _kp23[0] / 4096, _kp23[1] / 4096, CASE_P[0] / 4096, CASE_P[1] / 4096))
+            _LAP_ZOOM = True
+    # ==== end fix1123-story S10 (the zoom: below)
+    _best = None
+    for _k in range(16):
+        _gm = _k * math.pi / 8.0
+        _d = np.array([-math.sin(_gm), math.cos(_gm), 0.0])
+        _o = _lap + np.array([0.0, 0.0, 1.25 * 4096.0])
+        _hw = _SCAMS.ray(_TT22, _o, _d, 3.5 * 4096.0)
+        if _hw is None or _hw < 1.3 * 4096.0:
+            continue
+        _eye = _o + _d * (_hw - 0.45 * 4096.0)
+        _to = _lap - _eye; _dl = float(np.linalg.norm(_to))
+        if _SCAMS.ray(_TT22, _eye, _to / _dl, _dl - 0.2 * 4096.0) is not None:
+            continue
+        _sc = abs(_dl / 4096.0 - 1.6)
+        if _best is None or _sc < _best[0]:
+            _best = (_sc, tuple(float(c_) for c_ in _eye))
+    if _best is not None:
+        LAP_CAM, LAP_LOOK = _best[1], tuple(float(c_) for c_ in _lap)
+        cam_obj(LAP_CAM, LAP_LOOK, name='laptop', pole=False)
+        if _LAP_ZOOM:                                      # (fix1123-story S10: the operator zooms onto the laptop and key: ~0.9 m of table fills the picture)
+            _dl23 = math.dist(LAP_CAM, LAP_LOOK) / 4096.0
+            DECCS.append(('ss_dec_lap', "ANYA: Here is his laptop, on the table in the east personnel building, with a key right beside it. That key unlocks the shed. Grab both.",
+                          ('office', LAP_CAM, LAP_LOOK, LAP_LOOK, round(min(0.9, max(0.28, 0.45 / (0.75 * _dl23))), 3))))
+        else:
+            DECCS.append(('ss_dec_lap', "ANYA: Here is his laptop, on the table in the east personnel building, with a key right beside it. That key unlocks the shed. Grab both.",
+                          ('office', LAP_CAM, LAP_LOOK)))
+        print('fix1122 C7: laptop camera at %s, %.2f m from the laptop' % ([round(c_ / 4096.0, 2) for c_ in LAP_CAM], math.dist(LAP_CAM, LAP_LOOK) / 4096.0))
+    else:
+        print('fix1122 C7: WARNING no wall camera spot beside the laptop: no laptop shot')
+# ==== end fix1122-story block A ====
 DK, DCAP = shots(DECCS, 'SS_DEC')
 CSD = CS.add_outro(m, nid, 4087, DK, DCAP, DECRYPT)
 m.set(CSD['outro'], 2, 'Mid-game Cutscene (decrypted data)')
@@ -2994,7 +3106,7 @@ _cp = nid()
 m.add_child(CSD['outro'], T(_cp, 'ConditionalContainer', 'SS decrypt staged copies of the U men (Jones never below)',
                             'EditVariable_%d.nValue == 0' % WAS_BELOW, '', '', children=[]))
 for (_gx, _gy, _gg, _clip), _nm in zip(LIFT_GUARDS, ('A', 'B')):
-    K.actor(_cp, (_gx * 4096.0, _gy * 4096.0, V.TOP_Z * 4096.0), (_gx * 4096.0, (_gy + (1 if _gg == 0.0 else -1)) * 4096.0, V.TOP_Z * 4096.0),
+    K.actor(_cp, (_gx * 4096.0, _gy * 4096.0, V.TOP_Z * 4096.0), ((_gx - math.sin(_gg)) * 4096.0, (_gy + math.cos(_gg)) * 4096.0, V.TOP_Z * 4096.0),   # (fix1122 C1: from the heading, not N / S only)
             'alarm1_1', anim=_clip, weapon='107_01_1', name='decrypt lift guard ' + _nm)
 _mis = V.U((SB.PIT_C[0], SB.PIT_C[1], SB.F + 2.0))
 for _rx, _ry, _an in ((246.9, 237.3, 'scientist_standing_studying'), (247.4, 239.0, 'scientist_confused_studying, scientist_standing_studying'),
@@ -3014,10 +3126,23 @@ _wp = [(_x * 4096.0, _y * 4096.0, _z * 4096.0) for (_x, _y), _z in zip(SH_WALK, 
 _wrig, _wpa, _wgu = nid(), nid(), nid()
 _wt = lambda a_: 'CutScene_%d.nTick > %.2f * GAME_FREQUENCY' % (CSD['cs'], a_)
 _wbone = lambda clips_, loop_: T(nid(), 'EditBoneObj', 'SS decrypt shed guard', *_wp[0], 0.0, 0.0, math.pi / 2, loop_, True, 'alarm1_1', True, '107_01_1', '', clips_, 1.0, 0.0)
-m.add_child(CSD['outro'], T(_wrig, 'EditRigidObj', 'SS decrypt shed guard carrier', *_wp[0], 0.0, 0.0, math.pi / 2, 'lot', 5, False, False, children=[
-    T(nid(), 'ConditionalContainer', 'SS decrypt shed guard waits', '!(%s)' % _wt(_wa), '', '', children=[_wbone('stand', True)]),
-    T(nid(), 'ConditionalContainer', 'SS decrypt shed guard walks', '%s && !(%s)' % (_wt(_wa), _wt(_wb)), '', '', children=[_wbone('stand_walk_forward', True)]),
-    T(nid(), 'ConditionalContainer', 'SS decrypt shed guard posts', _wt(_wb), '', '', children=[_wbone('stand_look_about', True)])]))
+if os.environ.get('SS_FIX1123B_SHED', '1') == '1':          # (fix1123b E2, owner 11-24: three actors (wait / walk / post) one after another = two snaps: ONE actor now, one
+    import ssoutro as _SOw                                  #  non-looping list (stands fitted to whole clips up to the walk, whole walk cycles at the clip's foot speed, then his post),
+    _wcl, _wa2 = _SOw.fit(['stand'], ['stand', 'stand_streatch_neck'], _wa)   #  the Transition blends each change; the walk starts when his list gets there)
+    _wdist = sum(math.dist(_wp[k_], _wp[k_ - 1]) for k_ in (1, 2)) / 4096.0
+    _wn = max(1, int(round(_wdist / (1.7 * _SOw._clip('stand_walk_forward')))))
+    _wa, _wb = _wa2, _wa2 + _wn * _SOw._clip('stand_walk_forward')
+    _wlist = ', '.join(_wcl + ['stand_walk_forward'] * _wn + ['stand_look_about'] * 12)
+    m.add_child(CSD['outro'], T(_wrig, 'EditRigidObj', 'SS decrypt shed guard carrier', *_wp[0], 0.0, 0.0, math.pi / 2, 'lot', 5, False, False, children=[
+        T(nid(), 'ConditionalContainer', 'SS decrypt shed guard', '1', '', '', children=[
+            T(nid(), 'EditBoneObj', 'SS decrypt shed guard', *_wp[0], 0.0, 0.0, math.pi / 2, False, True, 'alarm1_1', True, '107_01_1', '', _wlist, 1.0, _SOw.BLEND)])]))
+    _ = [nid() for _k in range(4)]                         # (the two other phases' ids, burned: no later id shifts)
+    print('fix1123b E2: decrypt shed guard = one actor: %s' % _wlist[:160])
+else:
+    m.add_child(CSD['outro'], T(_wrig, 'EditRigidObj', 'SS decrypt shed guard carrier', *_wp[0], 0.0, 0.0, math.pi / 2, 'lot', 5, False, False, children=[
+        T(nid(), 'ConditionalContainer', 'SS decrypt shed guard waits', '!(%s)' % _wt(_wa), '', '', children=[_wbone('stand', True)]),
+        T(nid(), 'ConditionalContainer', 'SS decrypt shed guard walks', '%s && !(%s)' % (_wt(_wa), _wt(_wb)), '', '', children=[_wbone('stand_walk_forward', True)]),
+        T(nid(), 'ConditionalContainer', 'SS decrypt shed guard posts', _wt(_wb), '', '', children=[_wbone('stand_look_about', True)])]))
 _wd = [math.dist(_wp[k_], _wp[k_ - 1]) / 4096.0 for k_ in (1, 2)]
 _wts = [0.0, (_wb - _wa) * _wd[0] / sum(_wd), _wb - _wa]
 _wkh = sum(_wd) / (_wb - _wa) * 3.6
@@ -3072,13 +3197,9 @@ m.add_child(LOGIC, T(TUN_AREA, 'AreaActivate', 'SS Jones in the truck tunnel', 2
 UNDER = '(AreaActivate_%d.nActive || AreaActivate_%d.nActive)' % (BELOW, TUN_AREA)
 # (critic rv3: 'a sandstorm with clear air'. The engine's RainEffect as sand read as snow and showed underground (rv4) -> low drifts of sand from Smoke emitters where Jones crosses open ground)
 _dr = []
-# (S7 F4 'dark puffs over the sand', ss-look 11-17, SS_SAND_TINT=1, default OFF until a take: in the originals' alpha-mode Smoke (sprite 3) colour 2.0 = white
-#  smoke / dust, 1.3 = concrete dust, 0.6-1.0 = BLACK smoke, desert dust (2.0, 1.75, 1.44) / (2.0, 1.9, 1.6) at intensity 0.03-0.08 (L2, L5). Ours was darker
-#  than their black smoke -> dark brown blobs. The switch takes L2's tan dust colour and a lighter intensity)
-_SAND_RGB, _SAND_INT = ((2.0, 1.75, 1.44), 0.12) if os.environ.get('SS_SAND_TINT') == '1' else ((0.74, 0.60, 0.42), 0.28)
 for _x, _y in ((87.0, -22.0), (120.0, 12.0), (82.0, 58.0), (150.0, 208.0), (205.0, 248.0), (326.0, 181.0), (352.0, 190.0), (396.0, 196.0), (440.0, 214.0)):
-    _dr.append(_SGS.smoke(nid, 'SS blowing sand', V.U((_x, _y, _bh(_x, _y) + 0.8)), math.pi / 2, -math.pi / 2, 90, 7.0, 0.35, 4.0, 8.0, _SAND_RGB, 4.0, 3.0,
-                          3, 3.2, 0.7, _SAND_INT, 0.0, '', cutoff=130.0, mode=0))
+    _dr.append(_SGS.smoke(nid, 'SS blowing sand', V.U((_x, _y, _bh(_x, _y) + 0.8)), math.pi / 2, -math.pi / 2, 90, 7.0, 0.35, 4.0, 8.0, (0.74, 0.60, 0.42), 4.0, 3.0,
+                          3, 3.2, 0.7, 0.28, 0.0, '', cutoff=130.0, mode=0))
 m.add_child(LOGIC, T(nid(), 'Container', 'SS sand drifts', False, children=_dr))
 for _i in m.find('AmbientArea'):
     if str(m.arg(_i, 15)) in ('sandstorm_wind', 'wind_1', 'car_distant_01,car_distant_02', 'dogs_03,dogs_05,dogs_08'):
@@ -3539,14 +3660,594 @@ if SB.GUNROOM and os.environ.get('SS_RQ8', '1') != '0' and 'noai' not in DBG and
     print('RQ8: gun-room grenade rule first in every man below ground: %s' % _rq8)
 loop_walkers()                                            # (S3 ss-life 11-15: robot stop-and-look patrols -> node-to-node loops, same ids, no rng)
 MOVEWAIT = _MW.add_latch(m, T, nid, LOGIC, CSI['after']) if LIVE_PICKETS else None   # (orchestrator 11-14: posts stand through the intro, move 2 s after it; last nid())
-if SB.GUNROOM and GN.S14B_ON:                            # (S14b decision 91: the lobby barricade's sandbags; after the last nid(), before the intro actors are removed: no id shifts, no id reused)
+# ---- fix1120 WORLD (W7): the chair takes its id here, before G43 and the fix1120 removals free any id (a freed id may still be named somewhere)
+if SB.POST_BOOTH is not None:                              # (W7, mark 46: the checkpoint booth is hollow now: the guard's chair at its desk)
+    _bc, _bz2, _bd, _bn = SB.POST_BOOTH
+    _bp = _bc + _bn * 0.35 - _bd * 0.2
+    _bch = nid()
+    m.add_child(HALL, T(_bch, 'EditRigidObj', 'SS checkpoint booth chair', float(_bp[0] * 4096.0), float(_bp[1] * 4096.0), float(_bz2 * 4096.0), 0.0, 0.0,
+                        float(math.atan2(_bn[0], -_bn[1])), 'wi261_06_1', 5, False, False))   # (the lightmapped clone indoorize made for the control chairs: a plain 261 draws full bright underground)
+    print('fix1120 W7: booth chair %d at %.2f %.2f %.2f' % (_bch, _bp[0], _bp[1], _bz2))
+if SB.GUNROOM and GN.S14B_ON:                            # (S14b decision 91, fix1120 L12 hand port of main 26fb84e: the lobby barricade's sandbags; after the last nid(), before the intro actors are removed: no id shifts)
     _s14b = GN.screen_props(globals())
     print('S14b: lobby barricade %d bags (ids %d-%d), collision box %s in the gun room mesh' % (len(_s14b), _s14b[0], _s14b[-1], GN.SCREEN_BOX))
-if SB.GUNROOM and GN.S14W_ON:                            # (S14 window, orch-2 11-17: the steel window shutter + its latch; after the last nid() like S14b: no id shifts)
-    GN.window_shutter(globals())
+# ============================== fix1120-logic (owner F9 marks 11-20, LEDGER rows L2 L4 L5 L6 L7 L11). ONE block, after the last nid(): no older id shifts.
+# SS_FIX1120L=0 leaves the whole block out.
+if os.environ.get('SS_FIX1120L', '1') == '1':
+    # --- L7 (pics 18-20): door 2979, top floor of the stair tower at (130.5, 243.1): the MP map's own lock '1' for no reason (the same door on the
+    #     two floors below opens; crates stand behind it). A plain door now. After navgen: the AI graphs keep it shut, as before.
+    assert str(lit(m.byid[2979].args[1])) == 'Door'
+    m.set(2979, 18, ''); m.set(2979, 13, 90.0)   # (review: 2979 had max angle 0 = a dummy leaf; 90 like its twins 2973 / 2975)
+    print('fix1120 L7: door 2979 unlocked')
+    # --- L11 (pic 28): 'SS fuel drum 0' (406_50_1, the motor pool tank) was a plain EditRigidObj, a round did nothing. Now the MP map's own
+    #     shootable tank (ExplodeObject 3486's recipe 1:1: 406_50_1 -> 460_36_1, damage scale 3, radius 3, falloff 1.5, damage 2, delay 1, 3 + 3, explo_03_l;
+    #     ssboom: those numbers do not hurt Jones at range). Same id, same place; its lightmap goes to the ExplodeObject name via ssboom.relight (BOOM_MADE).
+    _fd = [i_ for i_ in m.find('EditRigidObj') if str(lit(m.byid[i_].args[2])) == 'SS fuel drum 0']
+    assert len(_fd) == 1, ('fix1120 L11: fuel drum', _fd)
+    _fd = _fd[0]; _fa = m.byid[_fd].args; _fpar = int(lit(m.parent[_fd].args[0]))
+    _fp = [float(lit(_fa[k_])) for k_ in range(3, 9)]
+    m.remove(_fd)
+    _fpar = int(lit(m.parent[3893].args[0]))           # (review: under Static a logic task never runs; the map's own tanks live under Dynamic, as ssboom's barrels)
+    m.add_child(_fpar, T(_fd, 'ExplodeObject', 'SS fuel drum 0 (shootable)', *_fp, '406_50_1', '460_36_1', 3.0, 3.0, 1.5, 2.0, 1.0, 3, 3, '', 'explo_03_l'))
+    globals().setdefault('BOOM_MADE', {})['fix1120 fuel drum'] = [(_fd, 'drum', tuple(c_ / 4096.0 for c_ in _fp[:3]))]
+    print('fix1120 L11: fuel drum %d is an ExplodeObject at %s' % (_fd, [round(c_ / 4096.0, 2) for c_ in _fp[:3]]))
+    # --- L5 (pics 11, 12, 22, 23): the feed cameras (the cutscenes film from them) were OFF and fixed: the owner saw dead cameras. Above ground they now
+    #     sweep and watch like the map's own cameras (+-35 deg, 30 deg/s, 2 s pause; their 45 / 45 / 10 m cone kept) and go off with the rest of their
+    #     side: south = the power cut, north = the camera control computer. Below ground (lift room, missile, control room) unchanged.
+    _fc = []
+    for _c in m.find('SCamera'):
+        if not str(lit(m.byid[_c].args[2])).startswith('SS feed camera ') or m.arg(_c, 5) < -5.0 * 4096:
+            continue
+        m.set(_c, 13, 35); m.set(_c, 14, 35); m.set(_c, 15, 30); m.set(_c, 16, 2.0)
+        m.set(_c, 20, ('!(%s) && EditVariable_1500.nValue == 0' % POWER_OFF) if m.arg(_c, 4) < 600000.0 else ('!GenericTBA_%d.isFinished && EditVariable_1500.nValue == 0' % SECURITY_PC))
+        _fc.append(_c)
+    print('fix1120 L5: feed cameras on and sweeping: %s' % _fc)
+    # --- L6 (pic 13): nothing told him about the camera control computer. Anya says it once the server is hacked and the cameras still run.
+    msg('SS_FX_CAMHINT', 'SS hint: camera control', 'StatusMessage_%d.nTicksSinceFinishedDisplay > 20 * GAME_FREQUENCY && !GenericTBA_%d.isFinished' % (O3, SECURITY_PC),   # (review: not on top of O3's line and the decrypt cutscene)
+        "ANYA: Their cameras can still see you, Jones. The camera control computer is in the control room, north-east of the server, upstairs. Shut it down and the airbase goes blind.", 9.0)
+    # --- L4 (pic 9): Kral's laptop forced nothing: objective 3 -> the missile site with no laptop. Now a key lies beside the laptop on its table and the
+    #     storeroom shed door (the only way down, ex 'pick it') opens only with that key: laptop first, then the stairs to the tunnel.
+    _kp = [p_ for d_, p_ in _tops if 0.3 * 4096 <= math.hypot(p_[0] - CASE_P[0], p_[1] - CASE_P[1]) <= 0.7 * 4096 and abs(p_[2] - CASE_P[2]) < 0.02 * 4096]
+    if _kp:
+        _kp = min(_kp, key=lambda p_: math.hypot(p_[0] - CASE_P[0], p_[1] - CASE_P[1]))
+    else:
+        print('fix1120 L4: WARNING no free table top beside the laptop: the key lies at the laptop itself')
+        _kp = CASE_P
+    SHED_KEY = nid()
+    m.add_child(PICK, T(SHED_KEY, 'GenericPickup', 'SS storeroom key (beside the laptop)', float(_kp[0]), float(_kp[1]), float(_kp[2]) + 25.0, 0.0, 0.0, 0.4,
+                        __import__('ssloot').KEY_MODEL if __import__('ssloot').LOOT else '806_01_1'))
+    _sdx, _sdy, _sdz = [float(lit(m.byid[SHED_DOOR_ID].args[k_])) for k_ in (3, 4, 5)]
+    _sda = nid()
+    m.add_child(LOGIC, T(_sda, 'AreaActivate', 'SS at the storeroom shed door', _sdx, _sdy, _sdz + 1.2 * 4096, 0.0, 0.0, 0.0, 3.4 * 4096, 3.4 * 4096, 2.6 * 4096, 'CRITERIA_HUMAN0'))
+    _skey = 'GenericPickup_%d.isPickedUp' % SHED_KEY
+    m.set(SHED_DOOR_ID, 15, False); m.set(SHED_DOOR_ID, 18, '1'); m.set(SHED_DOOR_ID, 19, '%s && AreaActivate_%d.nActive == 1' % (_skey, _sda)); m.set(SHED_DOOR_ID, 20, '0')
+    m.set(SHED_DOOR_ID, 2, "SS storeroom shed door (locked, key beside Kral's laptop)")
+    msg('SS_FX_SHEDKEY', 'SS storeroom key taken', '%s && StatusMessage_%d.nTicksSinceFinishedDisplay > GAME_FREQUENCY / 2' % (_skey, O4),   # (review: after O4's line, the key is taken with the laptop)
+    "STOREROOM KEY. It opens the shed behind the storage hangar: the stairs down to the tunnel.", 6.0)
+    msg('SS_FX_SHEDLOCK', 'SS storeroom shed locked', '%s == 0 && AreaActivate_%d.nActive == 1' % (_skey, _sda),
+        "Locked. The storeroom key lies beside Kral's laptop, in the east personnel building.", 6.0)
+    print('fix1120 L4: storeroom key %d at (%.2f, %.2f, %.2f), %.2f m from the laptop; shed door %d needs it (area %d)'
+          % (SHED_KEY, _kp[0] / 4096, _kp[1] / 4096, _kp[2] / 4096, math.hypot(_kp[0] - CASE_P[0], _kp[1] - CASE_P[1]) / 4096, SHED_DOOR_ID, _sda))
+    # --- L2 (pic 6): the ready room shutter had no control: the men came out on the alert and that was all. As the map's own blast doors (Door 400 / 401 +
+    #     Switch 204-207): a button on each side of the wall beside it, press = it opens, press again = it closes; the alert still opens it.
+    if GARRISON2:
+        _shb = []
+        for _nm, _y, _g in (('inside', GR.SY1 - 0.06, math.pi), ('outside', GR.SY1 + 0.5 + 0.06, 0.0)):
+            _i = nid()
+            m.add_child(4029, T(_i, 'Switch', 'SS ready room shutter button (%s)' % _nm, (GR.SHUT[1] + 0.55) * 4096, _y * 4096, (SB.F + 1.3) * 4096, 0.0, 0.0, _g,
+                                '1', False, 'button_1', '262_01_1', '262_02_1', '262_01_1', '262_02_1', '262_02_1', False, 'STATUSSCREEN:action_pressbutton.spr'))
+            _shb.append(_i)
+        _press = '(%s)' % ' || '.join('Switch_%d.isPressed' % i_ for i_ in _shb)
+        m.set(SHUTTER, 19, '(%s) || (Door_%d.isClosed && %s)' % (str(lit(m.byid[SHUTTER].args[19])), SHUTTER, _press))
+        m.set(SHUTTER, 20, 'Door_%d.isOpen && %s' % (SHUTTER, _press))
+        print('fix1120 L2: shutter %d buttons %s' % (SHUTTER, _shb))
+# fix1123b R1: the two ridge picket intro actors are put back with fresh ids just before the write (see the R1 block there); their removal here
+# stays, so every later task keeps the id it had in f1123_1
+FIX1123B_RIDGE = os.environ.get('SS_FIX1123B_RIDGE', '1') == '1'
+_R1_ACTORS = []
 for _da in (__import__('ssintro').DROP_ACTORS if INTRO2 else []):   # (G43 11-14: after the last nid(), so no task id shifts)
+    if FIX1123B_RIDGE and str(lit(m.byid[_da].args[2])) == 'SS intro ridge picket':
+        _R1_ACTORS.append((int(lit(m.parent[_da].args[0])), m.byid[_da]))
     m.remove(_da)
 print('G43: intro actors removed before write: %s' % (__import__('ssintro').DROP_ACTORS if INTRO2 else []))
+# ---- fix1120 WORLD block (owner 11-20 F9 marks; worker fix1120-world). After the last nid() and every id-keyed pass: removals free ids no
+#      later task takes (the W7 chair took its id just before G43), so no other task id shifts
+for _nm in ('SS poster mur_m1',                            # (W2, mark 21: the same Saddam tile mural again, filling the north store's wall over the
+            #  sacks; it stays on the two roadside boards ('SS board mur_m1'))
+            'SS garrison prop 56'):                        # (W10, mark 40: a lit terminal on the Bulwark's upstairs desk, nobody works there; the desk stays)
+    _fx = [i_ for i_ in m.find(name=_nm) if str(lit(m.byid[i_].args[2])) == _nm]
+    print('fix1120 W2/W10: removed %r %s' % (_nm, _fx))
+    for _i in _fx:
+        m.remove(_i)
+# ============================== fix1122-use (owner F9 marks round 2, 11-22, LEDGER rows U1 U2 U3 U4 U6 U7 U9 U11; U5 U8 in tools/ssgun.py, U10 in
+#      tools/ssrooms.py). ONE block, after the fix1120 blocks, before the write: only new ids at the end, no older id shifts. SS_FIX1122U=0 leaves it out.
+if os.environ.get('SS_FIX1122U', '1') == '1':
+    _UM = 4096.0
+    _UT = K._tris()[0]                                     # (the level's collision, walls and rooms, units)
+
+    def _u_ray(o, d, maxd):
+        """first hit of the ray o + t d (units, d unit) on the level's collision within maxd -> t or None"""
+        lo, hi = np.minimum(o, o + d * maxd) - 1.0, np.maximum(o, o + d * maxd) + 1.0
+        T_ = _UT[(_UT.max(axis=1) >= lo).all(axis=1) & (_UT.min(axis=1) <= hi).all(axis=1)]
+        if not len(T_):
+            return None
+        a_, e1, e2 = T_[:, 0], T_[:, 1] - T_[:, 0], T_[:, 2] - T_[:, 0]
+        p_ = np.cross(d, e2); det = np.einsum('ij,ij->i', e1, p_)
+        ok = np.abs(det) > 1e-9; inv = np.where(ok, 1.0 / np.where(ok, det, 1.0), 0.0)
+        tv = o - a_; u_ = np.einsum('ij,ij->i', tv, p_) * inv
+        q_ = np.cross(tv, e1); w_ = (q_ @ d) * inv; t_ = np.einsum('ij,ij->i', e2, q_) * inv
+        hit = ok & (u_ >= 0) & (w_ >= 0) & (u_ + w_ <= 1) & (t_ > 0) & (t_ <= maxd)
+        return float(t_[hit].min()) if hit.any() else None
+
+    # --- U1 U3 (pics 1, 2, 5): the hold-E lock pick ran 6 s (armoury, garrison armoury) and 12 s (the intro room door 3664), but Jones' pick hands
+    #     play about 4 s: the bar went on with his hands still (U1 'the animation is done and it is still loading', U3 'standing, no animation').
+    #     Every original pickable door picks in 4 s (L11-L36: 4, a few 2 / 3.5 / 4.5, none longer). So every pickable door: 4 s, hands, bar and door
+    #     together (humanplayer.c: the pick ends after Pick lock time x 30 ticks, then isPicked and the leaf swings open).
+    _pk = [d_ for d_ in m.find('Door') if str(lit(m.byid[d_].args[15])).upper() == 'TRUE']
+    for d_ in _pk:
+        m.set(d_, 17, 4.0)
+    print('fix1122 U1/U3: pick time 4 s on doors %s' % _pk)
+    # --- U2 (pic 3): the armoury's inside pair (north, to the house lobby) wanted a second pick after the outside pair. Now picking ANY of the four
+    #     leaves (or the key at either door, as before) opens all four: the inside doors stand open when he walks in. Close rule stays '0'.
+    _arm = [d_ for d_ in (4025, 4026) if d_ in m.byid and str(lit(m.byid[d_].args[1])) == 'Door'] + \
+           [d_ for d_ in m.find('Door') if str(lit(m.byid[d_].args[2])) == 'SS loot armoury north door']
+    if len(_arm) == 4:
+        _anyp = ' || '.join('Door_%d.isPicked' % d_ for d_ in _arm)
+        for d_ in _arm:
+            _o = str(lit(m.byid[d_].args[19])).strip()
+            m.set(d_, 19, '(%s) || %s' % (_o, _anyp) if _o and _o != '0' else _anyp)
+        print('fix1122 U2: armoury leaves %s open together on any pick' % _arm)
+    else:
+        print('fix1122 U2: WARNING armoury leaves not found: %s' % _arm)
+    # --- U4 (pics 4, 15): 'he types on air'. A GenericTBA stands Jones 0.85 m along its +y from the use point (proven: marks 4 and 15 are exactly
+    #     MV1 + 0.85 m, MV1 = the model's magic vertex 1, wd200_01_1: the keyboard's middle) and hack_computer's finger tips reach ~0.75 m: they came
+    #     down on the keyboard's front edge or in front of it. On 1876 the keyboard also sat 0.49 m deep on the desk (his body met the desk edge).
+    #     Now: the computer is an EditRigidObj where it stands (pulled to 0.28 m from the desk's front edge if it was deeper) and the use point is an
+    #     invisible TBA ('none', as the originals' L33 860) 0.15 m behind the keyboard's middle: Jones stands 0.70 m from it, his hands on the keys.
+    _DESK = {'231_15_1': (0.542, 1.425, 0.908), '231_03_1': (0.75, 0.40, 0.85), '260_11_1': (0.669, 1.012, 0.89)}
+    _desks = []
+    for e_ in m.find('EditRigidObj'):
+        md_ = str(lit(m.byid[e_].args[9])).lower()
+        b_ = md_[2:] if md_[:2] in ('wi', 'wd') else md_
+        if b_ in _DESK:
+            _desks.append((e_, _DESK[b_], [float(lit(m.byid[e_].args[k_])) for k_ in (3, 4, 5, 8)]))
+    for t_ in [t_ for t_ in m.find('GenericTBA') if str(lit(m.byid[t_].args[9])).lower() in ('wd200_01_1', '200_01_1')]:
+        a_ = m.byid[t_].args
+        P_ = np.array([float(lit(a_[k_])) for k_ in (3, 4, 5)]); g_ = float(lit(a_[8]))
+        lx, ly = np.array([math.cos(g_), math.sin(g_)]), np.array([-math.sin(g_), math.cos(g_)])
+        mv = P_[:2] + (-0.003 * lx + 0.016 * ly) * _UM
+        best, dedge = None, None
+        for e_, (hx, hy, top), (dx_, dy_, dz_, dg_) in _desks:
+            if math.hypot(dx_ - mv[0], dy_ - mv[1]) > 1.6 * _UM or abs(dz_ + top * _UM - P_[2]) > 0.12 * _UM:
+                continue
+            ex, ey = np.array([math.cos(dg_), math.sin(dg_)]), np.array([-math.sin(dg_), math.cos(dg_)])
+            r_ = mv - np.array([dx_, dy_]); lxp, lyp = float(r_ @ ex) / _UM, float(r_ @ ey) / _UM
+            if abs(lxp) > hx or abs(lyp) > hy:
+                continue
+            dxl, dyl = float(ly @ ex), float(ly @ ey)
+            ts = [((hx if dxl > 0 else -hx) - lxp) / dxl if abs(dxl) > 1e-6 else 1e9, ((hy if dyl > 0 else -hy) - lyp) / dyl if abs(dyl) > 1e-6 else 1e9]
+            best, dedge = e_, min(ts)
+        if best is None:
+            print('fix1122 U4: WARNING TBA %d %r: no desk under its keyboard, left as it was' % (t_, str(lit(a_[2]))))
+            continue
+        sh = max(0.0, dedge - 0.28)
+        V_ = P_.copy(); V_[:2] += ly * sh * _UM
+        U_ = V_.copy(); U_[:2] += (-0.003 * lx + (0.016 - 0.15) * ly) * _UM
+        on_, done_ = str(lit(a_[9])), str(lit(a_[10]))
+        dpar = int(lit(m.parent[best].args[0]))
+        if on_ == done_:
+            m.add_child(dpar, T(nid(), 'EditRigidObj', '%s (the computer)' % str(lit(a_[2])), *[float(c_) for c_ in V_], 0.0, 0.0, g_, on_, 5, False, False))
+        else:
+            for rule_, md_ in (('!GenericTBA_%d.isFinished' % t_, on_), ('GenericTBA_%d.isFinished' % t_, done_)):
+                m.add_child(LOGIC, T(nid(), 'ConditionalContainer', '%s (screen %s)' % (str(lit(a_[2])), md_), rule_, '', '',
+                                     children=[T(nid(), 'EditRigidObj', '%s (the computer)' % str(lit(a_[2])), *[float(c_) for c_ in V_], 0.0, 0.0, g_, md_, 5, False, False)]))
+        for k_ in range(3):
+            m.set(t_, 3 + k_, float(U_[k_]))
+        m.set(t_, 9, 'none'); m.set(t_, 10, 'none')
+        print('fix1122 U4: TBA %d %r on desk %d: keyboard %.2f m from the desk edge -> computer +%.2f m, use point 0.15 m behind the keys at (%.2f, %.2f)'
+              % (t_, str(lit(a_[2])), best, dedge, sh, U_[0] / _UM, U_[1] / _UM))
+    # --- U6 (pics 12, 13, 14, 16): the buttons sat in the wall. WHY: the Switch model 262_01_1 / 262_02_1 is a box at local y -0.153 .. -0.049
+    #     (render mesh), BEHIND its origin, and the builders put the origin 6 cm off the wall with +y out of it: 9 cm of the box in the wall, 1 cm
+    #     proud (the originals, L36 78-99 pairs, have the origin 0.15 m off the wall face). Fix for every such button: its back plate on the wall face
+    #     (origin 0.157 m out, by rays onto the level's collision) and, where a side of the box hung past the wall's end (pic 16, a pillar), slid
+    #     sideways until the whole plate is on the wall.
+    _sw = []
+    for s_ in [s_ for s_ in m.find('Switch') if str(lit(m.byid[s_].args[12])).lower() in ('262_01_1', '262_02_1')]:
+        a_ = m.byid[s_].args
+        P_ = np.array([float(lit(a_[k_])) for k_ in (3, 4, 5)]); g_ = float(lit(a_[8]))
+        lx = np.array([math.cos(g_), math.sin(g_), 0.0]); ly = np.array([-math.sin(g_), math.cos(g_), 0.0])
+        back = 0.30 * _UM                                  # (rays start 0.30 m out on +y: an origin a little inside the wall is found too)
+
+        def _wall(off_x, off_z):
+            o_ = P_ + ly * back + lx * off_x * _UM + np.array([0.0, 0.0, off_z * _UM])
+            t0 = _u_ray(o_, -ly, back + 0.6 * _UM)
+            return None if t0 is None else (t0 - back) / _UM
+        w0 = _wall(0.0, 0.0)
+        if w0 is None:
+            print('fix1122 U6: WARNING button %d %r: no wall behind it within 0.6 m, left as it was' % (s_, str(lit(a_[2]))))
+            continue
+        side = 0.0
+        for k_ in range(16):
+            ws = [_wall(side + dx_, dz_) for dx_ in (-0.11, 0.11) for dz_ in (-0.15, 0.15)]
+            okl = all(w is not None and abs(w - w0) < 0.03 for w in ws[:2]); okr = all(w is not None and abs(w - w0) < 0.03 for w in ws[2:])
+            if okl and okr:
+                break
+            side += 0.02 if okr and not okl else -0.02 if okl and not okr else 0.0
+            if okl == okr:                                 # (both sides off: a recess or a ledge, leave the side as it is)
+                break
+        dn = 0.157 - w0
+        if abs(dn) > 0.3:
+            print('fix1122 U6: WARNING button %d %r: wall %.2f m behind it, left as it was' % (s_, str(lit(a_[2])), w0))
+            continue
+        N_ = P_ + ly * dn * _UM + lx * side * _UM
+        for k_ in range(3):
+            m.set(s_, 3 + k_, float(N_[k_]))
+        _sw.append((s_, round(w0, 3), round(side, 2)))
+    print('fix1122 U6: buttons on the wall face (id, wall was m behind the origin, slid sideways m): %s' % _sw)
+    # --- U7 (pics 17, 60): Kral's laptop lay in the middle of his 1.3 x 2.0 m table (a crouch-jump to reach it) and the key on top of it; the room's
+    #     chairs faced the walls. Now the laptop at the edge of the long side with free floor, its keys toward the room; the key beside it; one chair
+    #     pulled up to that side further along, one at the table's end, both facing the table.
+    _kt = [i_ for i_ in m.find('EditRigidObj') if str(lit(m.byid[i_].args[2])) == "SS Kral's table"]
+    if _kt and CASE in m.byid:
+        tq = [float(lit(m.byid[_kt[0]].args[k_])) for k_ in (3, 4, 5, 8)]
+        c_ = np.array(tq[:2]); fz_ = tq[2]
+        tx_, ty_ = np.array([math.cos(tq[3]), math.sin(tq[3])]), np.array([-math.sin(tq[3]), math.cos(tq[3])])
+        HX, HY = 0.669, 1.012
+
+        def _free(p_):
+            ab_, be_ = _atmos._vertical_hits(_UT, (p_[0], p_[1], fz_ + 1.9 * _UM))
+            return not [z for z in ab_ + be_ if fz_ + 0.15 * _UM < z < fz_ + 1.8 * _UM]
+        side = next((s for s in (1, -1) if _free(c_ + (s * (HX + 0.5) * tx_ + -0.45 * ty_) * _UM) and _free(c_ + (s * (HX + 0.45) * tx_ + 0.55 * ty_) * _UM)), 1)
+        n_ = side * tx_
+        lp = c_ + (n_ * (HX - 0.19) - 0.45 * ty_) * _UM
+        m.set(CASE, 3, float(lp[0])); m.set(CASE, 4, float(lp[1])); m.set(CASE, 8, float(math.atan2(-n_[0], n_[1])))
+        if 'SHED_KEY' in globals() and SHED_KEY in m.byid:
+            kp = c_ + (n_ * (HX - 0.12) - 0.02 * ty_) * _UM
+            m.set(SHED_KEY, 3, float(kp[0])); m.set(SHED_KEY, 4, float(kp[1]))
+        _ch = sorted(i_ for i_ in m.find('EditRigidObj') if str(lit(m.byid[i_].args[2])) == 'SS broker room 261_06_1')
+        spots = [(c_ + (n_ * (HX + 0.42) + 0.55 * ty_) * _UM, -n_)] + [(c_ + e_ * ty_ * (HY + 0.42) * _UM, -e_ * ty_) for e_ in (1, -1)]
+        used = []
+        for i_ in _ch:
+            sp = next(((p_, f_) for p_, f_ in spots if _free(p_) and not any(np.allclose(p_, u_) for u_ in used)), None)
+            if sp is None:
+                break
+            used.append(sp[0])
+            m.set(i_, 3, float(sp[0][0])); m.set(i_, 4, float(sp[0][1])); m.set(i_, 8, float(math.atan2(-sp[1][0], sp[1][1])))   # (261_06_1 sits facing +y)
+        print('fix1122 U7: laptop %d at (%.2f, %.2f) on the %s long side of table %d, key %s, chairs %s at %s'
+              % (CASE, lp[0] / _UM, lp[1] / _UM, '+x' if side > 0 else '-x', _kt[0], globals().get('SHED_KEY'), _ch, [tuple(round(c / _UM, 2) for c in u_) for u_ in used]))
+    else:
+        print("fix1122 U7: WARNING Kral's table / laptop not found")
+    # --- U9 (pic 22): the garrison medipack stood upright on the table's very edge (x 227.10 = the edge), half over the floor. Now lying on the top,
+    #     0.3 m in from that edge (table 'SS garrison prop 49' 231_03_1, top 0.85)
+    for i_ in [i_ for i_ in m.find('GunPickup') if str(lit(m.byid[i_].args[2])) == 'SS garrison medipack 1']:
+        _tb = [j_ for j_ in m.find('EditRigidObj') if str(lit(m.byid[j_].args[2])) == 'SS garrison prop 49']
+        if _tb:
+            tz_ = float(lit(m.byid[_tb[0]].args[5]))
+            m.set(i_, 3, 226.80 * _UM); m.set(i_, 4, 203.85 * _UM); m.set(i_, 5, tz_ + 0.85 * _UM + 120.0)
+            m.set(i_, 6, 0.0); m.set(i_, 7, 0.0); m.set(i_, 8, 0.4)
+            print('fix1122 U9: medipack %d lying on table %d' % (i_, _tb[0]))
+    # --- U11 (pics 8, 9): the comms operator (HumanSoldier at 224.3, 198.1, facing his desk 'SS garrison prop 57') typed at an empty desk: fix1120 W10
+    #     had taken his terminal away ('SS garrison prop 56', 200_01_1). It comes back where it stood, his hands on its keys (keyboard y 197.27-197.48,
+    #     his finger tips 0.62-0.75 m ahead of him)
+    _gd = [i_ for i_ in m.find('EditRigidObj') if str(lit(m.byid[i_].args[2])) == 'SS garrison prop 57']
+    if _gd and not [i_ for i_ in m.find('EditRigidObj') if str(lit(m.byid[i_].args[2])).startswith('SS garrison prop 56')]:
+        gq = [float(lit(m.byid[_gd[0]].args[k_])) for k_ in (3, 4, 5)]
+        _ti = nid()
+        m.add_child(int(lit(m.parent[_gd[0]].args[0])), T(_ti, 'EditRigidObj', "SS garrison prop 56 (the comms operator's terminal)", gq[0], 197.36 * _UM, gq[2] + 0.91 * _UM,
+                                                          0.0, 0.0, 0.0, '200_01_1', 5, False, False))
+        print('fix1122 U11: terminal %d back on desk %d' % (_ti, _gd[0]))
+# ---- fix1122-world block (owner 11-22 review of f1120_1, rows B3 B5 B7 B1; worker fix1122-world). After every id-keyed pass, before m.write
+if F1122_W:
+    # B5 (marks 55-59): the hill house 3485 (MP 405_03_1) has its own stair from the top floor (20.3 m) to a hole in the roof, but the MP map plugged it: three
+    #  upturned stone walls 300_11_1 (3776 2861 2860, z 20.3-26.3, x 116.6-118.4 y 75.7-80.7) fill the stairwell and the roof shed over it (mark 57 = that plug, mark 56
+    #  the stone block inside the shed), and the shed's floor slab (23.51) lies over the hole. The plug goes; the shed and its door move 6.6 m north on the roof (clear
+    #  of the hole, inside the parapet): the stair comes out on the roof
+    _plug = [i_ for i_ in (3776, 2861, 2860) if i_ in m.byid and str(m.arg(i_, 9)) == '300_11_1' and abs(float(m.arg(i_, 5)) / 4096.0 - 26.18) < 0.05]
+    for _i in _plug:
+        if _i in m.byid:                                   # (2861 and 2860 are children of 3776: they go with it)
+            m.remove(_i)
+    for _i, _mod in ((2859, 'Building'), (2858, 'Door')):
+        if _i in m.byid and m.typ(_i) == _mod:
+            m.set(_i, 4, float(m.arg(_i, 4)) + 6.6 * 4096.0)
+    print('fix1122 B5: hill house stair plug removed %s, roof shed 2859 + door 2858 moved 6.6 m north' % _plug)
+    # B3 (mark 23): the original M2HB on the MG flatcar (holder + gun, the car's children: they ride its departure path)
+    _fc = TR_IDS[STR.CONSIST.index(STR.FLAT)]
+    _mgp = STR.local_to_world(TR_LINE, TR_S, STR.CONSIST.index(STR.FLAT), F1122_MG)
+    for _f1122_mdl, _f1122_nm in (('112_02_1', 'holder'), ('112_01_1', 'gun')):
+        m.add_child(_fc, T(nid(), 'EditRigidObj', 'SS flatcar M2HB %s' % _f1122_nm, *_mgp, 0.0, 0.0, _trg - math.pi / 2, _f1122_mdl, 5, False, False))
+    print('fix1122 B3: M2HB 112_02_1 + 112_01_1 on flatcar %d at %s m' % (_fc, [round(c_ / 4096.0, 2) for c_ in _mgp]))
+    # B7 (marks 62-63, propaudit SUNK 703 / 1100): the east block feed camera hung INSIDE the hill (wall_near's 'wall' was the slope: terrain 4 m over it); it moves
+    #  out to its feed's eye (1 m out, 2 m over the slope = what the intro shows), 0.35 m behind it like the wall cameras, on a mast. Then every camera mast is
+    #  cut to its height (2-7 m, 0.15-1 m into the ground) instead of one 8 m mast buried up to 13 m
+    _TTf = K._tris()[0]
+    for _c in [i_ for i_ in m.find('SCamera', 'SS feed camera east block') if str(m.arg(i_, 2)) == 'SS feed camera east block']:
+        _w = [float(m.arg(_c, k_)) for k_ in (3, 4, 5)]; _g = float(m.arg(_c, 6))
+        _dx, _dy = -math.sin(_g), math.cos(_g)
+        _q = (_w[0] + _dx * 4096.0, _w[1] + _dy * 4096.0)
+        _ez = max(_w[2], float(TERR.height(*_q)) + 2.0 * 4096.0)
+        _np = (_w[0] + 0.65 * _dx * 4096.0, _w[1] + 0.65 * _dy * 4096.0, _ez + 0.05 * 4096.0)
+        for k_, c_ in zip((3, 4, 5), _np):
+            m.set(_c, k_, c_)
+        for _mt in m.find('EditRigidObj', 'SS camera mount %d' % _c):
+            m.set(_mt, 3, _np[0]); m.set(_mt, 4, _np[1]); m.set(_mt, 5, _np[2] - 8.185 * 4096.0)
+        print('fix1122 B7: camera %d out of the hill: %s -> %s m' % (_c, [round(c_ / 4096.0, 2) for c_ in _w], [round(c_ / 4096.0, 2) for c_ in _np]))
+        _cz = max(_np[2], float(TERR.height(_np[0], _np[1])) + 2.2 * 4096.0)   # (b1122_3 propaudit: 0.5 m over the steep slope at the mast: the head 2.2 m over it, over and behind the eye)
+        if _cz > _np[2]:
+            m.set(_c, 5, _cz)
+            for _mt in m.find('EditRigidObj', 'SS camera mount %d' % _c):
+                m.set(_mt, 5, _cz - 8.185 * 4096.0)
+    # (the sewer hut feed camera's 'wall' was the chain-link fence, wall_near's ray hits its collision: it hung on the wire in the air, marks 62-63. A mast under it,
+    #  added HERE (ids after every other task, nothing shifts) instead of in ssworld.CAM_MOUNT)
+    for _c in [i_ for i_ in m.find('SCamera', 'SS feed camera sewer hut') if str(m.arg(i_, 2)) == 'SS feed camera sewer hut']:
+        _sib = m.find('EditRigidObj', 'SS camera mount')     # (beside the other masts: the same lit container)
+        _par = lit(m.parent[_sib[0]].args[0]) if _sib and m.parent.get(_sib[0]) is not None else 4029
+        if not m.find('EditRigidObj', 'SS camera mount %d' % _c):
+            m.add_child(_par, T(nid(), 'EditRigidObj', 'SS camera mount %d' % _c, float(m.arg(_c, 3)), float(m.arg(_c, 4)), float(m.arg(_c, 5)) - 8.185 * 4096.0,
+                                0.0, 0.0, 0.0, 'ss_pole_1', 5, False, False))
+    for _mt in m.find('EditRigidObj', 'SS camera mount'):
+        if str(m.arg(_mt, 9)) != 'ss_pole_1':
+            continue
+        _x, _y, _z = [float(m.arg(_mt, k_)) for k_ in (3, 4, 5)]
+        _top = _z + 8.0 * 4096.0
+        _gz = float(TERR.height(_x, _y))
+        _ab, _be = _atmos._vertical_hits(_TTf, (_x, _y, _top - 0.3 * 4096.0))
+        _be = [z_ for z_ in (_be or []) if z_ < _top - 0.3 * 4096.0]
+        if _be:
+            _gz = max(_gz, max(_be))
+        _need = (_top - _gz) / 4096.0
+        _L = next((n_ for n_ in sorted(F1122_POLES) if n_ >= _need + 0.15), None)
+        if _L is None:
+            print('fix1122 B7: mount %d needs %.1f m: 8 m mast kept' % (_mt, _need)); continue
+        m.set(_mt, 9, F1122_POLES[_L]); m.set(_mt, 5, _top - _L * 4096.0)
+        print('fix1122 B7: mount %d (%s) mast %d m, %.2f m into the ground' % (_mt, m.arg(_mt, 2), _L, _L - _need))
+    # B1 (marks 18-20): the storeroom shed floor is 8 cm higher now (tools/ssv4.py SHED_FLOOR 0.16, off the terrain it fought); its door leaf goes up with it
+    for _d in [i_ for i_ in m.find('Door', 'SS storeroom shed door') if abs(float(m.arg(i_, 5)) / 4096.0 + 7.22) < 0.03]:
+        m.set(_d, 5, float(m.arg(_d, 5)) + (V.SHED_FLOOR - 0.08) * 4096.0)
+        print('fix1122 B1: storeroom shed door %d up %.2f m with the floor' % (_d, V.SHED_FLOOR - 0.08))
+# ---- end fix1122-world block
+# ---- fix1123-world block 1 (owner 11-23 review of f1122_1, rows W1 W3 W4 W7 W9; worker fix1123-world). Before story block B and the write: new ids
+#      first, removals last. W1's graph part, W8 are in block 2 (on the written build, tools/ssf1123w.py). SS_F1123_W=0 leaves it out
+if F1123_W:
+    _UM3 = 4096.0
+    # W1 (marks 5-6): the roof sniper stood INSIDE the roof shed 2859 (B5 moved it over his post). Two Dragunov men on the open roof instead: the squad's
+    #  man to the south-west corner (graph 5 node at 113.04, 77.05: toward the way Jones comes; story C8 turns him to the opening), a second man of the
+    #  same squad at the north-east corner (node 122.75, 88.53) watching the north road and the tunnel mouth
+    _rq = SQUAD_IDS.get('S hill house roof')
+    if _rq and _rq[1]:
+        _h0 = _rq[1][0]
+        for k_, c_ in zip((3, 4, 5), (113.04 * _UM3, 77.05 * _UM3, 23.51 * _UM3)):
+            m.set(_h0, k_, c_)
+        _sk0 = str(lit(m.byid[_h0].args[7]))
+        _hb, _ab = nid(), nid()
+        m.add_child(_rq[0], T(_hb, 'HumanSoldier', '', 122.75 * _UM3, 88.53 * _UM3, 23.51 * _UM3, 0.35, _sk0, 1, 'Human_AddWeapon("WEAPON_ID_DRAGUNOV");', 1, -1,
+                              children=[T(_ab, 'HumanAI', '', C2N, 'HUMANAI_ANIMTYPE_SOLDIER_RIFLE', 5)]))
+        m.ai_files[str(_ab)] = m.ai_template('hold')
+        ENEMY_COUNT[0] += 1
+        print('fix1123 W1: roof sniper %d to the SW corner, second sniper %d (AI %d) at the NE corner of the hill house roof' % (_h0, _hb, _ab))
+    # W1: the roof shed (432_10_1, inside x 116.36-120.06, y 82.14-88.86, floor 23.61; its door on the east wall at y 88.07) gets a sniper post's store:
+    #  crates in the south-west corner, ammo cases on the east wall, a table with boxes and a chair on the west wall (the map's own lightmapped props)
+    _shp = next((i_ for i_ in m.find('Building', 'Shed') if abs(float(m.arg(i_, 5)) / _UM3 - 23.51) < 0.05), None)
+    if _shp is not None:
+        _sx, _sy, _sf = float(m.arg(_shp, 3)) / _UM3, float(m.arg(_shp, 4)) / _UM3, float(m.arg(_shp, 5)) / _UM3 + 0.098
+        _par3 = m.parent[_shp]
+        _par3 = int(lit(_par3.args[0])) if _par3 is not None else 4095
+        for _nm3, _md3, _dx3, _dy3, _dz3, _yw3 in (('crate', 'wi330_01_1', -1.19, -2.70, 0.0, 0.0), ('crate', 'wi330_01_1', -1.19, -2.70, 1.395, 0.12),
+                                                   ('crate', 'wi330_01_1', 0.09, -2.70, 0.0, 0.0),
+                                                   ('ammo case', 'wi239_01_1', 1.50, -2.10, 0.0, 0.0), ('ammo case', 'wi239_01_1', 1.50, -2.10, 0.504, 0.06),
+                                                   ('table', 'wi231_03_1', -1.40, 0.70, 0.0, math.pi / 2), ('chair', 'wi261_06_1', -0.46, 0.70, 0.0, math.pi / 2),
+                                                   ('box', 'wi231_17_1', -1.46, 0.30, 0.85, 0.3), ('box', 'wi231_17_1', -1.40, 1.05, 0.85, -0.2)):
+            m.add_child(_par3, T(nid(), 'EditRigidObj', 'SS roof shed %s' % _nm3, (_sx + _dx3) * _UM3, (_sy + _dy3) * _UM3, (_sf + _dz3) * _UM3, 0.0, 0.0, _yw3, _md3, 5, False, False))
+        print('fix1123 W1: roof shed %d furnished (9 props, parent %d)' % (_shp, _par3))
+    # W3 (marks 7-8): every mast camera on a square post behind its holder's wall plate (the camera itself does not move: the feeds hang on it)
+    _TT3 = K._tris()[0]
+    for _mt3 in list(m.find('EditRigidObj', 'SS camera mount')):
+        _mm3 = str(m.arg(_mt3, 9))
+        if not (_mm3.startswith('ss_pol') or _mm3 == 'ss_pole_1'):
+            continue
+        try:
+            _c3 = int(str(m.arg(_mt3, 2)).rsplit(' ', 1)[1])
+        except ValueError:
+            continue
+        if _c3 not in m.byid or m.typ(_c3) != 'SCamera':
+            continue
+        _cx, _cy, _cz = [float(m.arg(_c3, k_)) for k_ in (3, 4, 5)]; _g3 = float(m.arg(_c3, 6))
+        _px, _py = _cx + math.sin(_g3) * 0.33 * _UM3, _cy - math.cos(_g3) * 0.33 * _UM3
+        _top = _cz + 0.12 * _UM3
+        _gz = float(TERR.height(_px, _py))
+        if _gz > _cz - 0.6 * _UM3:                         # (w1123_2 qa SUNK: camera 2358 looks down a slope, the spot behind it is inside the hill: its mast stays under it)
+            print('fix1123 W3: camera %d: ground behind it at %.2f m (camera %.2f): mast left under it' % (_c3, _gz / _UM3, _cz / _UM3)); continue
+        _ab3, _be3 = _atmos._vertical_hits(_TT3, (_px, _py, _top - 0.7 * _UM3))
+        _be3 = [z_ for z_ in (_be3 or []) if z_ < _top - 0.7 * _UM3]
+        if _be3:
+            _gz = max(_gz, max(_be3))
+        _need = (_top - _gz) / _UM3
+        _L3 = next((n_ for n_ in sorted(F1123_POSTS) if n_ >= _need + 0.15), None)
+        if _L3 is None:
+            print('fix1123 W3: mount %d needs %.1f m: left' % (_mt3, _need)); continue
+        for k_, c_ in zip((3, 4, 5, 8, 9), (_px, _py, _top - _L3 * _UM3, _g3, F1123_POSTS[_L3])):
+            m.set(_mt3, k_, c_)
+        print('fix1123 W3: camera %d (%s) on a %d m post 0.33 m behind it, %.2f m into the ground' % (_c3, m.arg(_c3, 2), _L3, _L3 - _need))
+    # W4 (mark 10): the admin ground floor alarm button hung sideways on the edge of the crest panel (409_21_1 faces of 410_19_1: x 54.03-55.94,
+    #  y 237.04-237.83, 8.48-12.19 m). It goes on the crest face (normal -0.349 -0.937, toward the lobby), centred under the Arabic name (0.62 of the
+    #  face from its west end), 1.4 m up, its back on the panel (262_01_1 lies at local y -0.153..-0.049 and faces +y: the old spot had its back on
+    #  the panel's west edge at 54.05 with gamma pi/2, so the origin sits 0.15 m out along the face normal, gamma turns +y onto that normal)
+    for _b4 in [i_ for i_ in m.find('Switch', 'SS alarm button (admin ground floor)') if str(m.arg(i_, 2)) == 'SS alarm button (admin ground floor)']:
+        _n4 = (-0.349, -0.937)
+        _q4 = (54.03 + 0.62 * 1.87, 237.74 - 0.62 * 0.70)
+        for k_, c_ in zip((3, 4, 5, 8), ((_q4[0] + _n4[0] * 0.15) * _UM3, (_q4[1] + _n4[1] * 0.15) * _UM3, 9.88 * _UM3, math.atan2(-_n4[0], _n4[1]) % (2 * math.pi))):
+            m.set(_b4, k_, c_)
+        print('fix1123 W4: alarm button %d on the crest panel face at %.2f %.2f 9.88' % (_b4, _q4[0], _q4[1]))
+    # W7 (marks 15-16): the lift's floor top (202_02_1 collision 0.261 m under its origin) 4 cm under both landings -> up 0.041 m; sills over the gaps
+    for _lf in m.find('Lift'):
+        _lfz = []
+        for _fl in [c_ for c_ in m.byid if m.typ(c_) == 'Floor' and m.parent.get(c_) is m.byid[_lf]]:
+            m.set(_fl, 5, float(m.arg(_fl, 5)) + 0.041 * _UM3); _lfz.append(round(float(m.arg(_fl, 5)) / _UM3, 3))
+        m.set(_lf, 15, float(m.arg(_lf, 15)) + 0.041 * _UM3)
+        print('fix1123 W7: lift %d floors up 0.041 m -> %s' % (_lf, _lfz))
+        if str(m.arg(_lf, 3)) == '202_02_1' and abs(float(m.arg(_lf, 13)) / _UM3 - 164.82) < 0.05:
+            _ly = float(m.arg(_lf, 14)) / _UM3
+            for _sx7, _sz7 in ((163.10, -15.30), (167.67, -15.30), (167.67, -25.60)):
+                _s7 = nid()
+                m.add_child(_par3 if _shp is not None else 4095, T(_s7, 'EditRigidObj', 'SS lift sill', _sx7 * _UM3, _ly * _UM3, _sz7 * _UM3, 0.0, 0.0, 0.0, 'ss_sill_1', 5, False, False))
+                print('fix1123 W7: lift sill %d at %.2f %.2f %.2f' % (_s7, _sx7, _ly, _sz7))
+    # W9 (marks 24-27, 'this building does not need to exist'): the trackside pump hut (432_10_1 at 352, 182) and its indoor zone go
+    for _i9 in [i_ for i_ in m.find('EditRigidObj', 'SS pump hut') if str(m.arg(i_, 2)) == 'SS pump hut'] + \
+               [i_ for i_ in m.find('AreaActivate', 'SS indoors') if math.hypot(float(m.arg(i_, 3)) / _UM3 - 352.0, float(m.arg(i_, 4)) / _UM3 - 182.0) < 1.0]:
+        print('fix1123 W9: removed %d %s %r' % (_i9, m.typ(_i9), m.arg(_i9, 2)))
+        m.remove(_i9)
+# ---- end fix1123-world block 1
+# ==== fix1122-story block B (owner 11-22 review of f1120_1, rows C6 C7 C8; worker fix1122-story). Last before the write: new ids only ====
+if os.environ.get('SS_FIX1122_STORY', '1') == '1':
+    from igiqvm import Str as _Str22
+    # --- C6 (pics 49 51 52 53: 'notes and a key lie around ... no way that I know these exist ... make it an objective or a side objective'):
+    #     ssloot's armoury key and its three papers become two OPTIONAL objectives on the map computer (slots 7 + 8, ticked when done), told
+    #     by a line 40 s into play, with markers (7 = the key and the armoury, 8 = each paper) that show once that line has played
+    _ml = lambda n_: [i_ for i_ in m.byid if str(lit(m.byid[i_].args[2])) == n_]
+    _lk = globals().get('LOOT_KEY')
+    _papers = [i_ for i_ in m.find('GenericPickup') if str(lit(m.byid[i_].args[2])).startswith('SS paper ')]
+    _arm = [d_ for d_ in LOOT_DOORS if d_ in m.byid] + _ml('SS loot armoury north door')
+    _doc = [a_ for a_ in m.byid[mapc].args if isinstance(a_, Call) and a_.name == 'Task_New' and str(lit(a_.args[1])) == 'DefineComputerObjective']
+    if _lk and _papers and _arm and len(_doc) == 1:
+        _S9 = os.environ.get('SS_FIX1123_OPT', '1') == '1'  # (fix1123-story S9, owner 11-23 'a key for the storage place, but it opens without the key: makes no sense'.
+        #  Orchestrator: keep an optional objective only where its item is really needed. The armoury key now IS needed (no 6 s lock pick on the four leaves);
+        #  the papers objective ('point to hidden supplies') is dropped: the papers stay as readables, each says its own line when taken)
+        _hint = msg('SS_FX_OPT', 'SS optional objectives told', 'LevelTimer_%d.nTick > 40 * GAME_FREQUENCY && %s' % (CSI['after'], NOT_CS),
+                    ("ANYA: An optional objective on your map, Jones. The south armoury by the west generator holds weapons and medipacks, and its doors cannot be forced: "
+                     "the duty sergeant in the rest hut by the east generator keeps the only key.") if _S9 else
+                    ("ANYA: Two optional objectives on your map, Jones. The south armoury by the west generator is locked: the duty sergeant in the rest hut "
+                     "by the east generator keeps its key. And papers lying in the compound's huts point to hidden supplies."), 10.0)
+        if _S9:
+            for d_ in _arm:                                 # (no lock pick: the key, or the doors stay shut)
+                m.set(d_, 15, False)
+            m.add_text('messages', 'SS_LOOT_LOCK', "Locked. The armoury key is with the duty sergeant, in the rest hut by the east generator.")   # (ssloot LOCK_LINE offered a lock pick)
+        _oa = _doc[0].args
+        for _slot, (_key, _link, _cond, _text) in ((6, ('SS_OBJ7', _lk, ' || '.join('Door_%d.isOpen' % d_ for d_ in _arm),
+                                                         "Optional: open the south armoury beside the west generator. The key is with the duty sergeant, rest hut by the east generator.")),
+                                                    (7, ('SS_OBJ8', _papers[0], ' && '.join('GenericPickup_%d.isPickedUp' % p_ for p_ in _papers),
+                                                         'Optional: pick up and read the papers left in the south compound huts. They point to hidden supplies.')))[:1 if _S9 else 2]:
+            _oa[4 + 4 * _slot] = _Str22(_key); _oa[5 + 4 * _slot] = v(_link); _oa[6 + 4 * _slot] = _Str22(_cond); _oa[7 + 4 * _slot] = _Str22('')
+            m.add_text('objectives', _key, _text)
+        _pos = lambda i_: tuple(float(lit(m.byid[i_].args[k_])) for k_ in (3, 4, 5))
+        for _tid, _n, _p in [(_lk, 7, _pos(_lk)), (_lk, 7, V.U((78.25, 109.25, 0.31)))] + ([] if _S9 else [(p_, 8, _pos(p_)) for p_ in _papers]):
+            m.add_child(mapc, T(nid(), 'ComputerHilight', '', *_p, 'StatusMessage_%d.isSendt' % _hint, str(_tid), 'COMPUTER:h_%d.spr' % _n,
+                                'MARKER_NONE', 'MARKER_COLOR_NONE', '', '', -1))
+        print('fix1122 C6: optional objectives 7 (key %d, armoury doors %s) and 8 (papers %s), hint %d' % (_lk, _arm, _papers, _hint))
+    else:
+        print('fix1122 C6: WARNING loot not found (key %s, papers %s, doors %s, objective task %d): no optional objectives' % (_lk, _papers, _arm, len(_doc)))
+    # --- C7 (the briefing named Kral's laptop before anyone knew it): the briefing text and objective 4 no longer name it; the decrypt
+    #     cutscene shows it (block A) and Anya names it there. The intro line ss_ia3 is changed in tools/ssintro.py
+    m.add_text('objectives', 'SS_OBJ4', 'Take the proof of the sale that the server points to. Anya will tell you where it is.')
+    m.add_text('missions', 'Mission %d Desc' % MISSION_ID,
+               "Something is going on at Al-Saqr Air Base in the western Iraqi desert: night flights, General Dhari running "
+               "the base, and tonight a European arms broker, Kral, has flown in. IGI does not know what they are doing. Cut the "
+               "power in the southern compound, go under the hills through the sewer, hack their server "
+               "and find out what this base hides. You have one hour.")
+    # --- C8 (pic 61, 'the sniper looks at nothing: face the window'): every Dragunov man faces out of his room through an opening: of 32
+    #     bearings from his eyes (1.6 m), those with no wall within 12 m (a window, a door, a roof edge), the one nearest the way Jones comes
+    #     (the south compound: from the landing; the airbase: from the sewer exit)
+    _T22 = K._tris()[0]
+    _pl = [i_ for i_ in m.find('HumanPlayer')]
+    _from = {'S': tuple(float(lit(m.byid[_pl[0]].args[k_])) for k_ in (3, 4)) if _pl else None,
+             'N': tuple(float(lit(m.byid[SEWER_EXIT].args[k_])) for k_ in (3, 4))}
+    for _sk in ('S gatehouse loft', 'S hill house roof', 'N admin top floor', 'N north admin and garage'):
+        for _h in (SQUAD_IDS.get(_sk, (0, []))[1] if _sk in SQUAD_IDS else []):
+            if _h not in m.byid:
+                continue
+            _p = np.array([float(lit(m.byid[_h].args[k_])) for k_ in (3, 4, 5)]) + np.array([0.0, 0.0, 1.6 * 4096.0])
+            _f = _from[_sk[0]]
+            if _f is None:
+                continue
+            _want = math.atan2(-(_f[0] - _p[0]), _f[1] - _p[1])
+            _open = []
+            for _k in range(32):
+                _gm = _k * math.pi / 16.0
+                _hit = _SCAMS.ray(_T22, _p, np.array([-math.sin(_gm), math.cos(_gm), 0.0]), 12.0 * 4096.0)
+                if _hit is None:
+                    _open.append(_gm)
+            if not _open:
+                print('fix1122 C8: %s %d: no opening within 32 bearings, heading kept' % (_sk, _h))
+                continue
+            _g = min(_open, key=lambda g_: abs((g_ - _want + math.pi) % (2 * math.pi) - math.pi))
+            print('fix1122 C8: %s %d faces %.0f deg (out of %d open bearings; Jones comes from %.0f deg, was %.0f)' % (_sk, _h, math.degrees(_g), len(_open), math.degrees(_want), math.degrees(float(lit(m.byid[_h].args[6])))))
+            m.set(_h, 6, round(_g, 6))
+            import ssface as _SF22                         # (the S2 gate: a sniper at a window has a sill in front of him, not 3 m of floor: his written reason)
+            _SF22.ALLOW.setdefault(_sk, 'fix1122 C8: a sniper at a window / roof parapet, looking out toward the way Jones comes')
+# ==== end fix1122-story block B ====
+# ==== fix1123-story block (owner 11-23 review of f1122_1, rows S1 S2 S7; worker fix1123-story). Last before the write: new ids only ====
+if os.environ.get('SS_FIX1123_STORY', '1') == '1':
+    # --- S1: the satellite pass's sound (tools/ssintro.py S['sat']): a static burst on each step's cut and the camera zoom whirr (COMMON noise_04, zoom_01)
+    if INTRO2 and _SI.S.get('sat'):
+        for _k, _ts in enumerate(_SI.S['sat'][:2]):          # (fix1123b I2: a third step's cues are added before the write, no id shifts)
+            m.add_child(CSI['intro'], _atmos.sound_cue(nid, CSI['cs'], round(_ts + 0.02, 2), 'noise_04', name='SS satellite static %d' % _k))
+            m.add_child(CSI['intro'], _atmos.sound_cue(nid, CSI['cs'], round(_ts + 0.4, 2), 'zoom_01', name='SS satellite zoom %d' % _k))
+        print('fix1123 S1: satellite static + zoom cues at %s s' % _SI.S['sat'])
+    # --- S2 (pic 12: 'two soldiers look at a wall; the lower level must NOT hear the alarms / shooting upstairs, they behave normally'): the two lift
+    #     guards (U machine room) kept a 0.35 hearing factor (the other men below: 0.08) and every sound event went to the engine's default handler,
+    #     which turns a man to the noise (the shooting upstairs, 10-20 m over their heads) and he stays turned. Now: hearing 0.05, and a gunshot,
+    #     a miss, a bullet impact, an explosion or a death cry they only hear keeps them on their talk clip, facing each other. They still fight the moment
+    #     they see Jones, are hit, or see a mate fall (ENEMYDETECTION / TAKINGDAMAGE / FRIENDLY_DYING), and on U_ALARM (the chip) as before
+    _ev23 = alarmai.C('AIFunction_GetCurrentEventType')
+    _snd23 = alarmai.OR(*[alarmai.EQ(_ev23, 'AIEVENT_' + e_) for e_ in ('GUNSHOT', 'GUNSHOTMISS', 'EXPLOSION')])
+    _lg23 = []
+    for _h, (_gx, _gy, _gg, _clip) in zip(SQUAD_IDS['U machine room'][1][:2], LIFT_GUARDS):
+        if _h not in m.byid:
+            continue
+        _aidr = next(lit(c_.args[0]) for c_ in m.byid[_h].args if hasattr(c_, 'args') and lit(c_.args[1]) == 'HumanAI')
+        _ver23, _b23 = alarmai.decompile_ai(bytes(m.ai_files[str(_aidr)]))   # (review e004237: wrap the script as built - HUNT, ssbrain, voices, RQ8 stay inside)
+        _cr23 = _ds._find_create(_b23)
+        for _st in (_cr23.then if _cr23 is not None else []):
+            if getattr(_st, 'name', None) == 'AIFunction_SetHearingRangeFactor':
+                _st.args[0] = _Flt(0.05)
+        m.ai_files[str(_aidr)] = alarmai.compile_ai([alarmai.If(alarmai.AND(_snd23, alarmai.EQ(_UA, 0)),
+                                                                [Call('AIFunction_SetStandActionAnimation', [Str(_clip)]), alarmai.C('AIAction_PlayAnimation', 1, 0)], _b23)], _ver23)
+        _lg23.append((_h, [getattr(s_, 'args', None) for s_ in (_cr23.then if _cr23 is not None else []) if getattr(s_, 'name', None) == 'AIFunction_SetHearingRangeFactor']))
+    print('fix1123 S2: lift guards %s deaf to the noise upstairs (hearing 0.05, a heard shot / blast keeps their talk clip while the base below is calm)' % _lg23)
+    # --- S7 (V6 V7: 'a man stands inside the wall / door behind Dhari's aide'): the live server-room post nearest the room's door stood ON its jamb
+    #     (52.79, 240.30; the wall line x 52.6-52.8, door 52.77, 239.29), so the ending's wide shot showed him in the wall. He moves into the corridor
+    #     beside his mate (54.79, 239.54), facing him; the aide walks out to the pair (tools/ssgeneral.py DOOR_OUT)
+    _sr23 = [h_ for h_ in SQUAD_IDS['N server room'][1] if h_ in m.byid and 52.3 * 4096 < m.arg(h_, 3) < 53.3 * 4096 and abs(m.arg(h_, 4) - 239.3 * 4096) < 1.6 * 4096]
+    for _h in _sr23:
+        _z = m.arg(_h, 5)
+        for _x, _y in ((54.70, 240.85), (55.60, 240.70), (54.80, 238.20)):
+            _j = nv.surface_at(_x * 4096.0, _y * 4096.0, _z + 0.2 * 4096.0, maxdz=0.45 * 4096.0, alive_only=False, radius=0)
+            if _j >= 0 and abs(NF['z'][_j] - _z) < 0.3 * 4096.0 and free_run((_x * 4096.0, _y * 4096.0, _z), math.atan2(-(54.79 - _x), 239.54 - _y), cap=1.0) >= 0.9:
+                print('fix1123 S7: server-room guard %d off the door jamb (%.2f, %.2f) -> (%.2f, %.2f)' % (_h, m.arg(_h, 3) / 4096, m.arg(_h, 4) / 4096, _x, _y))
+                m.set(_h, 3, _x * 4096.0); m.set(_h, 4, _y * 4096.0); m.set(_h, 6, round(math.atan2(-(54.79 - _x), 239.54 - _y), 6))
+                break
+        else:
+            print('fix1123 S7: WARNING no clear corridor spot for server-room guard %d: left on the jamb' % _h)
+    if not _sr23:
+        print('fix1123 S7: no server-room guard on the door jamb')
+# ==== end fix1123-story block ====
+# ---- fix1123b R1 (owner F9 mark round 4 pic 01, fly mode at (85.66, -20.56, -0.50) m facing 347 deg, 2 m from START: 'two soldiers standing
+#      on the sand ridge ahead'): the two live ridge pickets 'S landing zone pickets' (1103) + 'S ridge mate' (1402) go, squads and AI files with
+#      them. No rule, objective, alarm or AI script names them (checked on f1123_1). After the LAST nid() and right before the write, so no other
+#      task id shifts (f1123b_1 did it earlier and later nid() calls took the freed ids). The intro keeps its teaser pair: the two cutscene-only
+#      actors G43 used to drop come back here with fresh ids (they exist only while the intro runs). SS_FIX1123B_RIDGE=0 = as f1123_1.
+if INTRO2 and len(_SI.S.get('sat', [])) > 2:              # (fix1123b I2: the satellite pass's third step (sewer entrance): its static + zoom cues, appended last)
+    for _k, _ts in list(enumerate(_SI.S['sat']))[2:]:
+        m.add_child(CSI['intro'], _atmos.sound_cue(nid, CSI['cs'], round(_ts + 0.02, 2), 'noise_04', name='SS satellite static %d' % _k))
+        m.add_child(CSI['intro'], _atmos.sound_cue(nid, CSI['cs'], round(_ts + 0.4, 2), 'zoom_01', name='SS satellite zoom %d' % _k))
+    print('fix1123b I2: satellite cues for steps %s' % _SI.S['sat'][2:])
+if FIX1123B_RIDGE:
+    _rgone = []
+    for _rk in [k_ for k_ in ('S landing zone pickets', 'S ridge mate') if k_ in SQUAD_IDS]:   # ('S ridge mate' exists only with SS_INTRO2=1)
+        _rsid, _rhids = SQUAD_IDS[_rk]
+        _rgone += [_rsid] + list(_rhids)
+        for _h in list(_rhids):
+            _rp = [round(float(lit(m.byid[_h].args[c_])) / 4096.0, 1) for c_ in (3, 4, 5)]
+            _aidr = next(lit(c_.args[0]) for c_ in m.byid[_h].args if hasattr(c_, 'args') and lit(c_.args[1]) == 'HumanAI')
+            m.ai_files.pop(str(_aidr), None); _rhids.remove(_h); ENEMY_COUNT[0] -= 1
+            print('fix1123b R1: ridge soldier %d (%s) removed at %s m' % (_h, _rk, _rp))
+        m.remove(_rsid); m.ai_files.pop('Squad_%d' % _rsid, None)
+    _rleft = [h_ for h_ in re.findall(r'(?:HumanSoldier|AISquad)_(\d+)', ' '.join(str(a_) for t_, d_, p_ in tasks(m.stmts) for a_ in t_.args
+                                                                              if type(a_).__name__ == 'Str')) if int(h_) in _rgone]
+    assert not _rleft, ('fix1123b R1: rules still name the ridge pickets', _rleft)
+    if not __import__('ssintro').FIX1123B_NOFALL:          # (fix1123b I1: with the fall cut the intro never shows the ridge, its two actors stay dropped)
+        for _rpar, _rt in _R1_ACTORS:
+            _rt.args[0] = v(nid())
+            m.add_child(_rpar, _rt)
+        print('fix1123b R1: intro ridge actors kept as %s' % [lit(t_.args[0]) for _p, t_ in _R1_ACTORS])
 m.write(out, MISSION_ID, FOLDER, 'sandstorm.spr', debug=bool(DEBUG), own_common='common')
 _mj = os.path.join(out, 'meta.json')                        # (tools/cscheck.py SK06: the squads stay live in these cutscenes on purpose)
 _meta = json.load(open(_mj))
@@ -3577,6 +4278,15 @@ if WRECK_MODEL == 'b740_01_1':
 else:
     import wreck as _wreck
     _wreck.add_wreck_model(os.path.join(out, 'overlay'), 'sandstorm', src='740_01_1', dst=WRECK_MODEL)
+if F1122_W:                                                 # (fix1122-world B4, owner 11-22 mark 24: the ending Hind's foreign roundel + serials -> Iraqi flag, Iraqi Air Force, tools/ssf1122w.py)
+    import ssf1122w as _F1122W
+    _F1122W.retex_hind(out)
+# ---- fix1123-world block 2 (on the written build, after the overlay and the relight; tools/ssf1123w.py)
+if F1123_W:
+    import ssf1123w as _F1123W
+    _F1123W.graph_sectors(out)                              # (W1: soldiers on graph nodes inside a house get the house's portal sector: no vanishing by view angle)
+    _F1123W.brighten(out, {i_ for i_ in m.byid if m.typ(i_) in ('EditRigidObj', 'GenericTBA') and len(m.byid[i_].args) > 9 and str(lit(m.byid[i_].args[9])).lower() in ("wd200_01_1", "200_01_1")})   # (W8)
+# ---- end fix1123-world block 2
 
 # =========================================================== 12. sound banks. The PATH entry of a bank must name the folder it
 # is loaded from or the game registers none of its samples (that silenced the alarm siren and all level ambience).

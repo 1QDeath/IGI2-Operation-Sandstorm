@@ -27,6 +27,10 @@ SHED_ID = 3137                                             # the map's shed behi
 SHED = (167.1, 238.5, -7.3)                                # its position (m); the way-down model's origin
 SHED_EAST = 170.9                                          # its east wall (world x, m)
 SHED_FLOOR = 0.08                                          # the shed floor's top over SHED z (shed_model's floor slab)
+F1122_W = os.environ.get('SS_F1122_W', '1') == '1'         # (fix1122-world B1/B2: shed floor clear of the terrain, ss_shc bands on one world phase; 0 = f1120_1)
+if F1122_W:                                                #  (B1, owner 11-22 marks 18-20: the floor top at -7.22 lay ON the terrain (-7.19..-7.22 in the footprint):
+    SHED_FLOOR = 0.16                                      #   the sand floor and the ground fought. 8 cm up: the ground 5 cm under it everywhere)
+SHC_Z0 = -15.3 + 2.4                                       # (B2, mark 21: the 400_83_1 band (dark red over black, the texture's top rows) at one world height in every way-down model)
 CELL_DOOR_P = (176.67, 233.45)                             # its hinge (world m): the west jamb, in the door wall's middle
 CELL_DOOR_W = 1.12                                         # the machine-room doorway, narrowed to the prison cell door 500_23_1
 HATCH = (166.5, 236.9, 170.10, 238.7)                      # the stair hatch in its floor (world m): the terrain cut must stay in the shed
@@ -318,6 +322,12 @@ def mesh_from_boxes(G, origin, slots=('c', 's'), extra_coll=()):
     coll = list(extra_coll)
     for x0, y0, z0, x1, y1, z1, kind in G:
         b = box(x0 - origin[0], y0 - origin[1], z0 - origin[2], x1 - origin[0], y1 - origin[1], z1 - origin[2], uv=0.35)
+        if F1122_W:                                        # (fix1122-world B2, owner 11-22 mark 21: v = model z * 0.35, so ss_way_1 (origin -7.3) and ss_shaft_1
+            P_, T_, N_, U_ = b                             #  (origin -15.3) drew the band 0.57 m apart, 'the right side does not match the lift side': v from WORLD z,
+            U_ = np.array(U_, float).copy()                #  one phase, the band at SHC_Z0 + k * 2.857 m (the corridor's ceiling line), the same in both)
+            side = np.abs(np.asarray(N_)[:, 2]) <= 0.5
+            U_[side, 1] = (np.asarray(P_)[side, 2] / M + origin[2] - SHC_Z0) * 0.35
+            b = (P_, T_, N_, U_)
         groups[kind.rstrip('v')].append(b)
         if not kind.endswith('v'):
             coll.append(b)
@@ -362,8 +372,9 @@ def shed_model(hatch, door):
     ceil = box(X0, Y0, H - 0.06, X1, Y1, H, uv=0.4)         # (rig p1: the hull slopes are one-sided - sky seen from inside; a ceiling)
     ceilp = [MK.panel((0.0, 0.0, H - 0.061), (1, 0, 0), (0, sg_, 0), X1 - X0, Y1 - Y0, uv=(0.0, 0.0, (X1 - X0) * 0.5, (Y1 - Y0) * 0.5)) for sg_ in (-1, 1)]
     # (judge R02: seen from below the roof tin's corrugations ran to one point like a smear: the ceiling is boards, the floor's planks)
-    fl = [box(X0, Y0, -0.05, X1, hy0, 0.08, uv=0.5), box(X0, hy1, -0.05, X1, Y1, 0.08, uv=0.5),
-          box(X0, hy0, -0.05, hx0, hy1, 0.08, uv=0.5), box(hx1, hy0, -0.05, X1, hy1, 0.08, uv=0.5)]
+    sf = SHED_FLOOR                                        # (fix1122-world B1: was 0.08, on the terrain)
+    fl = [box(X0, Y0, -0.05, X1, hy0, sf, uv=0.5), box(X0, hy1, -0.05, X1, Y1, sf, uv=0.5),
+          box(X0, hy0, -0.05, hx0, hy1, sf, uv=0.5), box(hx1, hy0, -0.05, X1, hy1, sf, uv=0.5)]
     # (judge E03, 11-12: 400_23_1 is this map's sand, not planks: the ceiling showed desert overhead. The boards are the walls' 431_15_1)
     return MK.model([(0, walls + ceilp), (1, roof), (2, fl)], walls + roof + fl + [ceil])
 

@@ -149,7 +149,7 @@ def hide_in_feeds(G):
         if not win:
             print('sscams: camera %d %r: %d keys in its head, no cutscene window found: left' % (i, nm, len(keys))); continue
         feeds[i] = _merge(win)
-    uses = _near_uses(m, lit)
+    uses = _near_uses(m, lit) if os.environ.get('SS_CAM_USEHIDE', '0') == '1' else {}   # (fix1120 L5, owner pic 11/12: a camera that vanished while Jones held E at the computer under it read as a bug: it stays now. SS_CAM_USEHIDE=1 = the old hide)
     out = []
     for i in sorted(set(feeds) | set(uses)):
         nm = str(lit(m.byid[i].args[2]))
@@ -257,7 +257,8 @@ REMOVE = ('SS feed camera server corner', 'SS feed camera office', 'SS feed came
           'SS feed camera gate 2')                                          # (main gate: the alarm camera 3933 on its mast stands for it)
 MOVE = {                                                                     # name: (x, y m where rc7q has it, new x, y, z m) - into a ceiling corner, measured rc7q
     'SS feed camera server desk': (48.04, 239.29, 48.454, 240.395, 8.08),   # (1.18 m north along the west wall, 0.4 m from the north wall, 0.2 m under the ceiling)
-    'SS feed camera control room': (256.00, 197.01, 265.60, 197.01, -30.60),   # (9.6 m east along the south wall to the corner)
+    'SS feed camera control room': (256.00, 197.01, 256.00, 197.01, -30.60),   # (fix1120 W11, owner 11-20 mark 41: the feed is filmed from x 256 (EditCamera 758-760 at
+    #  256.0, 197.5, -31.2) but the camera hung 9.6 m east in the corner: back over the shot's eye, up under the ceiling; hide_in_feeds keeps it out of its own shot)
     'SS feed camera lift room': (158.60, 232.90, 158.60, 232.90, -10.92),   # (already 0.39 m from the corner: up under the ceiling)
 }
 
@@ -289,14 +290,8 @@ def one_per_room(G):
 
 MAST_MOVE = {                                                # name: (pole x, y m where it stands, new pole x, y m) - camera and mast together
     'SS feed camera generators': (107.33, 101.94, 105.47, 98.53),   # (G03 fix 2, 11-13: the pole stood in a slope rising 1.5 m a metre, ground 7.4-8.3 at a
-                                                                     #  camera 7.1 m up = buried. 2.5 m downhill + 3 m aside: ground 3.65, 3.5 m of mast shows;
-                                                                     #  63 deg off its own feed's axis (eye 1 m in front of the old spot), so not in that shot)
-    'SS feed camera east block': (160.38, 173.71, 159.38, 177.21),  # (S7 / propaudit look_5 SUNK 701, 11-17: G03 missed it. Camera 2354 (z 6.24) and its
-}                                                                    #  mast stood INSIDE a cliff (terrain 10.3 at the camera, falling ~2.5 m a metre to
-                                                                     #  +x +y): 0 of 68 mast and 0 of 56 camera vertices over the ground. 1 m west + 3.5 m
-                                                                     #  north: ground 2.30, 3.9 m of mast shows, terrain >= 2 m under the camera within
-                                                                     #  0.6 m; 68 deg off its feed's axis (forward +0.56 x +0.83 y, eye 1 m in front of the
-                                                                     #  old spot); nearest AI node 5.8 m, no object within 3 m. No alarm link (Doors container))
+}                                                            #  camera 7.1 m up = buried. 2.5 m downhill + 3 m aside: ground 3.65, 3.5 m of mast shows;
+                                                             #  63 deg off its own feed's axis (eye 1 m in front of the old spot), so not in that shot)
 
 
 def mast_move(G):

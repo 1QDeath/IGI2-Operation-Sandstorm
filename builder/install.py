@@ -14,12 +14,12 @@ corrupts the new one (crash a few seconds in). Every install/uninstall moves tha
 <game>/savegames_bak-<date>-<build>/ and prints how many; nothing is deleted. Campaign progress, stats and carry-over (savegames/missions) stay.
 
 End picture (11-15, SF_DESIGN 2.5 / I1): a build with endscreen/congratulations.jpg installs it as NEW files
-SCREENS/intro/english|USA/congratulations.jpg (shown after the last stats instead of the stock / Patch picture, which is never touched);
+SCREENS/intro/english|USA/congratulations.jpg (shown after the last stats instead of the stock / Neonix picture, which is never touched);
 uninstall, or installing another build of the same mission, deletes them again (only while byte-identical to what was written).
 
-Intro / end pictures (11-23, fix1123 E2, owner: no Patch picture anywhere): the engine shows SCREENS/intro/<language>/<name> before
+Intro / end pictures (11-23, fix1123 E2, owner: no Neonix picture anywhere): the engine shows SCREENS/intro/<language>/<name> before
 SCREENS/intro/<name> (introscreen.c), so every install / uninstall writes screens/intro/*.jpg (ours: the stock Codemasters / Innerloop /
-Pan Vision splashes from before the Patch patch, and our end picture) as NEW files into SCREENS/intro/english|USA. The Patch files
+Pan Vision splashes from before the Neonix patch, and our end picture) as NEW files into SCREENS/intro/english|USA. The Neonix files
 in SCREENS/intro are never touched. congratulations.jpg: a build's own endscreen/ picture wins; ours only while no installed build has one.
 A language-folder file that we did not write (installed_intro.json keeps what we wrote) is never overwritten.
 
@@ -168,7 +168,7 @@ def regenerate(state):
 
 def write_loadingscreens(state):
     """loading pictures (owner 10-12): MENUSYSTEM/loadingscreen.res = the original + its generic picture without the
-    'PATCH PATCH' logo (loading/generic.jpg, work/loading/depatch.py) + 'loading<id>.jpg' for every installed mission
+    'NEONIX PATCH' logo (loading/generic.jpg, work/loading/deneonix.py) + 'loading<id>.jpg' for every installed mission
     with a loading/<id>.jpg (igi2.exe 0x429140 looks up LOCAL:menusystem/loading%02d.jpg by mission id first)"""
     orig = os.path.join(ORIG, 'MENUSYSTEM', 'loadingscreen.res')
     if not os.path.exists(orig):
@@ -281,8 +281,8 @@ def endscreen_check(build, state):
 
 def endscreen_install(build, meta):
     """SF_DESIGN 2.5 / I1 (R14): after the last mission's stats the engine shows SCREENS/intro/<language>/congratulations.jpg when it exists,
-    else the stock / Patch picture (introscreen.c 145-158). A build that carries endscreen/congratulations.jpg gets it as NEW files in the
-    english + USA language folders; the stock SCREENS/intro/congratulations.jpg (Patch) is never touched, a foreign file in a language
+    else the stock / Neonix picture (introscreen.c 145-158). A build that carries endscreen/congratulations.jpg gets it as NEW files in the
+    english + USA language folders; the stock SCREENS/intro/congratulations.jpg (Neonix) is never touched, a foreign file in a language
     folder is never overwritten; uninstall (and the next install of this mission) deletes ours again."""
     src = os.path.join(build, ENDSCREEN)
     if not os.path.isfile(src):
@@ -305,7 +305,7 @@ INTRO_STATE = os.path.join(HERE, 'installed_intro.json')         # language-fold
 def write_introscreens(state):
     """(fix1123 E2) SCREENS/intro/<lang>/<name>.jpg = screens/intro/<name>.jpg for english + USA (the engine takes the language folder
     first). congratulations.jpg is skipped while an installed build carries its own (endscreen_install wrote it). Never overwrites a file
-    we did not write; never touches SCREENS/intro/<name>.jpg itself (the Patch pictures stay as they are, unused)."""
+    we did not write; never touches SCREENS/intro/<name>.jpg itself (the Neonix pictures stay as they are, unused)."""
     if not os.path.isdir(INTRO_SRC):
         return
     rec = json.load(open(INTRO_STATE)) if os.path.exists(INTRO_STATE) else {}

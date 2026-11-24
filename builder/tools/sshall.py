@@ -49,13 +49,17 @@ def _ry(a):                                                # pitch about y (x to
 
 def tel_model(orig, raised):
     """the launch truck: 600_00_1 without its tarp (group 1) + an erector frame and a missile (jrmodels parts) lying along x over
-    the bed and the cab; raised = the erector pitched up 48 deg about its rear pivot"""
+    the bed and the cab; raised = the erector pitched up 48 deg about its rear pivot.
+    fix1120 (owner 11-20 marks 27, 31-38): the tarp group was also the truck's BED, so the erector and the raised missile stood on bare wheels
+    ('resting on the air'), and the rails and the missile ran through the cab roof (2.70 m, measured on 600_00_1). Now: a steel flatbed on the
+    chassis, the cradle up on a rear pedestal and a front frame behind the cab so rails and missile clear the roof, saddles under the missile"""
     import modelkit as MK, biprefabs as BP, jrmodels as JM
     box = BP.box_m
     G = _orig_parts(orig, (0, 2, 3, 4, 5, 6, 7))
     body, boost, fins = JM._missile_parts()                # along y, centred
     Rz = np.array([[0, -1, 0], [1, 0, 0], [0, 0, 1.0]])    # y -> -x: the nose toward the cab (-x)
-    pivot = (3.1, 0.0, BED_Z + 0.35)
+    PIV_Z = 2.95                                           # (fix1120: was BED_Z + 0.35 = 1.77, 0.9 m under the cab roof; rail bottom now 2.85, roof 2.70)
+    pivot = (3.1, 0.0, PIV_Z)
     ang = math.radians(48.0) if raised else 0.0
     Rp = _ry(-ang)                                         # nose (-x) goes up
 
@@ -63,19 +67,25 @@ def tel_model(orig, raised):
         P, Tr, N, Uv = part
         P2 = (P / M + np.asarray(offs) - pivot) @ Rp.T + pivot
         return (P2 * M, Tr, N @ Rp.T, Uv)
-    rail = [box(-4.2 - 3.1, -0.42, -0.10, 0.0, -0.30, 0.05), box(-4.2 - 3.1, 0.30, -0.10, 0.0, 0.42, 0.05),
+    rail = [box(-3.6 - 3.1, -0.42, -0.10, 0.0, -0.30, 0.05), box(-3.6 - 3.1, 0.30, -0.10, 0.0, 0.42, 0.05),   # (fix1120: rails end over the cab front, not 0.9 m past it)
             box(-0.25, -0.5, -0.30, 0.0, 0.5, 0.05)]
+    rail += [box(xr - 0.12, -0.42, -0.10, xr + 0.12, 0.42, 0.16) for xr in (-5.1, -2.5)]   # (fix1120: two saddles: the body (r 0.26) hung 9 cm over nothing between the rails)
     rail = [er(p_, pivot) for p_ in rail]
     mis = [er(_xform(p_, Rz, (0, 0, 0)), (pivot[0] - 3.4, 0.0, pivot[2] + 0.40)) for p_ in body]
     mis2 = [er(_xform(p_, Rz, (0, 0, 0)), (pivot[0] - 3.4, 0.0, pivot[2] + 0.40)) for p_ in boost + fins]
     groups = [(gi, [G[gi]]) for gi in sorted(G)]
-    struts = [box(2.6, -0.5, BED_Z, 3.4, 0.5, BED_Z + 0.35)]
+    deck = [box(-0.62, -1.18, 1.10, 3.3, 1.18, BED_Z),     # (fix1120 W6: the flatbed the tarp group used to carry, on the wheels (tops 1.06))
+            box(-0.62, -1.18, BED_Z, -0.52, 1.18, BED_Z + 0.25)]   # headboard behind the cab
+    struts = [box(2.6, -0.5, BED_Z, 3.4, 0.5, PIV_Z)]       # the rear pedestal up to the pivot
+    if not raised:                                         # (fix1120: the lowered cradle rests on a frame behind the cab)
+        struts += [box(-0.50, yy - 0.06, BED_Z, -0.36, yy + 0.06, PIV_Z - 0.10) for yy in (-0.36, 0.36)]
+        struts.append(box(-0.50, -0.42, PIV_Z - 0.30, -0.36, 0.42, PIV_Z - 0.10))
     if raised:                                             # the lift ram from the bed to the rail
         a_ = (0.9, 0.0, BED_Z + 0.2)
         b_ = np.array(pivot) + Rp @ (np.array((-2.6, 0.0, 0.0)))
         struts.append(MK.hull_m([np.r_[a_[0] + dx, dy, a_[2]] for dx in (-0.1, 0.1) for dy in (-0.1, 0.1)] +
                                 [np.r_[b_[0] + dx, dy, b_[2]] for dx in (-0.1, 0.1) for dy in (-0.1, 0.1)]))
-    groups += [(8, rail + struts), (9, mis), (10, mis2)]
+    groups += [(8, rail + struts + deck), (9, mis), (10, mis2)]
     coll = [box(-3.3, -1.2, 0.0, 3.3, 1.2, BED_Z)] + struts + rail
     return MK.model(groups, coll)
 

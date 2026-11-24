@@ -53,7 +53,8 @@ T_ROOF_DROP = 0.45
 GARRISON2 = os.environ.get('SS_GARRISON2', '1') == '1'          # (owner 11-05, 55-56: the soldiers live in the Bulwark, tools/ssgarr.py, not in rooms on the north wall)
 GUNROOM = os.environ.get('SS_GUNROOM', '1') == '1'             # (owner 11-06, 63: the three-stop lift and the gun room, tools/ssgun.py, behind this flag until proven)
 SS_PORTAL_EDGE = os.environ.get('SS_PORTAL_EDGE', '1') == '1'   # (S7 11-17: the sand door drift's lane edges come down to the ground past the revetments; 0 = rc7s25 shape)
-SS_TRACK_EDGE = os.environ.get('SS_TRACK_EDGE', '1') == '1'     # (S7 11-17: the tyre tracks stop at the apron's edge instead of hanging over its drop; 0 = ssb2 shape)
+F1122_W = os.environ.get('SS_F1122_W', '1') == '1'        # (fix1122-world B1/B2/B8: stair-top lamp + cable tray under the shed floor, lift room dado, apron sand piles on the ground; 0 = f1120_1)
+DUNE_RING = os.environ.get('SS_DUNE_RING', '1') == '1'    # (fix1120 W8: one more buried ring of cells round the sand door drift; 0 = ssb3b shape)
 EXPOSED_SEGS = 5                                           # the last tunnel segments stand out of the hill
 
 
@@ -308,9 +309,14 @@ def tex_gate(get, sand=False, outside=False):
     return _rgba(np.asarray(im, float) / 255.0)
 
 
+HZ_DIM = 0.55                                              # (fix1120 W4, owner 11-20 mark 45: the gate's striped jambs 'too bright, not matching': yellow x 0.55, a little greyed)
+
+
 def tex_hz(get):
     wear = (0.72 + 0.4 * _noise(128, 128, 33))[..., None]
-    return _rgba(_hazard(128, 128, 32) * wear)
+    a = _hazard(128, 128, 32) * wear
+    a = (a * 0.8 + a.mean(2, keepdims=True) * 0.2) * HZ_DIM  # (fix1120 W4: the hall's hazard paint, dirty and in shade like the walls round it)
+    return _rgba(a)
 
 
 def tex_lamp(get):
@@ -1014,6 +1020,7 @@ class Tunnel:
 
 
 POST_S = 212.0                                             # the checkpoint on the north ramp (arc m)
+POST_BOOTH = None                                          # (fix1120 W7: (centre xy, floor z, along d, across n) of the booth, set by post_mesh)
 
 
 def post_mesh(T_):
@@ -1046,8 +1053,26 @@ def post_mesh(T_):
     # the booth against the left wall, past the second barrier
     xb, yb, zb, d, n = T_.at(POST_S - 1.5)
     c = np.array([xb, yb]) + n * 3.1
-    rect = lambda za: [(c[0] + d[0] * e + n[0] * f, c[1] + d[1] * e + n[1] * f, za) for e in (-1.3, 1.3) for f in (-1.2, 1.3)]
-    me.hull('ss_corr', rect(zb - 0.3) + rect(zb + 2.5), uv=0.4)
+    # (fix1120 W7, owner 11-20 mark 46: 'the checkpoint cabin is a solid box, you cannot go inside, nothing inside'): a real booth - 12 cm
+    #  corrugated walls, a 1.1 m doorway on the road side (f -1.2), a window each way along the road (e +-1.3), a floor slab, a desk with a lamp
+    #  over it; the chair is a task (build_sandstorm, fix1120 block before m.write). Was one solid hull e -1.3..1.3, f -1.2..1.3, z -0.3..2.5
+    global POST_BOOTH
+
+    def bpart(e0, e1, f0, f1, z0, z1, slot='ss_corr', solid=True):
+        me.hull(slot, [(c[0] + d[0] * e + n[0] * f, c[1] + d[1] * e + n[1] * f, zb + z) for e in (e0, e1) for f in (f0, f1) for z in (z0, z1)], uv=0.4, solid=solid)
+    fz = max(T_.at(POST_S - 1.5 + e_)[2] for e_ in (-1.2, 0.0, 1.2)) - zb + 0.04     # floor slab top over the sloping ramp (relative zb)
+    wt, dw, dh, w0, w1 = 0.12, 0.55, fz + 2.1, fz + 1.05, fz + 1.85
+    bpart(-1.3, -dw, -1.2, -1.2 + wt, -0.3, 2.5); bpart(dw, 1.3, -1.2, -1.2 + wt, -0.3, 2.5); bpart(-dw, dw, -1.2, -1.2 + wt, dh, 2.5)   # road wall, door
+    bpart(-1.3, 1.3, 1.3 - wt, 1.3, -0.3, 2.5)                                                       # back wall (the tunnel wall side)
+    for e0, e1 in ((-1.3, -1.3 + wt), (1.3 - wt, 1.3)):                                              # end walls with a window
+        bpart(e0, e1, -1.2 + wt, 1.3 - wt, -0.3, w0); bpart(e0, e1, -1.2 + wt, 1.3 - wt, w1, 2.5)
+        bpart(e0, e1, -0.05, 0.05, w0, w1, 'ss_stl')                                                 # a mullion
+    bpart(-1.3 + wt, 1.3 - wt, -1.2 + wt, 1.3 - wt, -0.3, fz, 'ss_cc')                               # floor slab
+    bpart(-1.0, 0.6, 0.72, 1.3 - wt, fz + 0.72, fz + 0.77, 'ss_stl')                                 # desk top on the back wall
+    for e_ in (-0.95, 0.55):
+        bpart(e_ - 0.03, e_ + 0.03, 0.75, 0.81, fz, fz + 0.72, 'ss_stl'); bpart(e_ - 0.03, e_ + 0.03, 1.08, 1.14, fz, fz + 0.72, 'ss_stl')
+    me.lamp((c[0] + n[0] * 0.6, c[1] + n[1] * 0.6, zb + 2.35), 420.0, (1.0, 0.86, 0.6))
+    POST_BOOTH = (c.copy(), zb + fz, np.array(d, float), np.array(n, float))
     rtop = [(c[0] + d[0] * e + n[0] * f, c[1] + d[1] * e + n[1] * f, zb + za) for e in (-1.5, 1.5) for f in (-1.4, 1.5) for za in (2.5, 2.62)]
     me.hull('ss_stl', rtop, uv=0.5, solid=False)
     # the sign over the road, facing the man coming up the ramp, a red lamp on the booth
@@ -1132,6 +1157,10 @@ def dune(me, T_, ground, dx, dy, z):
                 continue
             live[i, j] = h > g - 0.15
             Pz[i, j] = max(h, g - 0.5)
+    if DUNE_RING:                                          # (fix1120 W8, owner 11-20 marks 47-52 'sand floating'; propaudit 1674 EDGE_IN_AIR 199.5 m, median 0.11 m: the
+        lv_ = live.copy()                                  #  drift's border ran through corners only 0.15 m under the grid ground, the game's terrain between grid points dips
+        lv_[1:, :] |= live[:-1, :]; lv_[:-1, :] |= live[1:, :]; lv_[:, 1:] |= live[:, :-1]; lv_[:, :-1] |= live[:, 1:]   #  lower and the edge showed. One more ring of
+        live = lv_                                         #  cells: the border corners now sit at the skirt depth (ground - 0.5 m))
     P, U, T = [], [], []
     idx = -np.ones((nx, ny), int)
     for i in range(nx):
@@ -1228,8 +1257,6 @@ def tracks(me, ground, dx, dy, z):
                 g = z + 0.05 if X < 9.0 else float(ground(dx + X, dy + Y)) + 0.1      # (review: 5 mm over the apron sand flickered, 1 m steps dip under the ground)
                 pts.append((dx + X, dy + Y, g))
             for (x0, y0, z0), (x1, y1, z1) in zip(pts[:-1], pts[1:]):
-                if SS_TRACK_EDGE and abs(z1 - z0) > 0.3:   # (S7 11-17, propaudit 1674: the apron ends at X ~8.7 over a 1.4-2.3 m drop; the X 8.6 -> 9.6 quad of each
-                    continue                                #  track hung over it, up to 1.6 m in the air. Only those 4 go (look_5: kept steps <= 0.14 m))
                 me.quad('ss_track', (x0, y0 - 0.17, z0), (x1, y1 - 0.17, z1), (x1, y1 + 0.17, z1), (x0, y0 + 0.17, z0), (0, 0, 1), [(0, 0), (1, 0), (1, 0.35), (0, 0.35)])
 
 
@@ -1272,6 +1299,12 @@ def portal_model(T_, ground):
         me.hull('ss_dune', [(fx0, dy + sg * 5.0, z - 0.2), (fx0, dy + sg * 6.2, z - 0.2), (dx + 3.8, dy + sg * 5.35, z - 0.2), (dx + 3.8, dy + sg * 6.2, z - 0.2),
                             (fx1 + 0.05, dy + sg * 5.15, z + 0.8), (fx1 + 0.05, dy + sg * 6.2, z + 1.5), (dx + 2.7, dy + sg * 6.2, z + 0.7)], uv=1.0 / SAND_TILE, solid=False)
         for k_, (x_, y_, h_, r_) in enumerate(((3.0, 4.7, 0.22, 1.1), (6.5, 5.2, 0.3, 1.3), (11.0, 5.6, 0.25, 1.6))):    # sand blown onto the apron's edges, clear of the trucks' lane (|y| < 4.25)
+            if F1122_W:                                    # (fix1122-world B8, owner 11-20 marks 47-52 / 11-22: the pile at x + 11 lies past the apron's end (x + 9), where
+                fo_ = lambda X_, Y_: min(z, float(ground(dx + X_, dy + sg * Y_))) - 0.08   #  the ground falls away: its rim at z - 0.05 floated over the ground.
+                ft_ = [(dx + x_ + r_ * c__, dy + sg * (y_ + 0.5 * r_ * s__), fo_(x_ + r_ * c__, y_ + 0.5 * r_ * s__)) for c__, s__ in ((1, 0), (0.7, 0.7), (0, 1), (-0.7, 0.7), (-1, 0), (0, -0.4))]
+                zt_ = min(p_[2] for p_ in ft_) + 0.08      #  Every rim point now 8 cm under the ground (or the apron) under it; the crest over the lowest of them)
+                me.hull('ss_dune', ft_ + [(dx + x_, dy + sg * (y_ + 0.15), zt_ + h_), (dx + x_ + 0.4 * r_, dy + sg * (y_ + 0.25), zt_ + 0.6 * h_)], uv=1.0 / SAND_TILE, solid=False)
+                continue
             me.hull('ss_dune', [(dx + x_ + r_ * c__, dy + sg * (y_ + 0.5 * r_ * s__), z - 0.05) for c__, s__ in ((1, 0), (0.7, 0.7), (0, 1), (-0.7, 0.7), (-1, 0), (0, -0.4))] +
                     [(dx + x_, dy + sg * (y_ + 0.15), z + h_), (dx + x_ + 0.4 * r_, dy + sg * (y_ + 0.25), z + 0.6 * h_)], uv=1.0 / SAND_TILE, solid=False)
     me.box('ss_rev', fx0, dy - 6.0, ht, fx1, dy + 6.0, ht + 1.5, uv=0.5, solid=False)
@@ -1408,9 +1441,14 @@ def way_decor(V):
     me.quad('ss_tfw', (cx0, wy, z0 + 0.012), (cx1, wy, z0 + 0.012), (cx1, sy1, z0 + 0.012), (cx0, sy1, z0 + 0.012), (0, 0, 1), [(0, 0), (1, 0), (1, 1), (0, 1)])
     me.quad('ss_tw2', (cx0, wy, z0 + h - e), (cx1, wy, z0 + h - e), (cx1, sy1, z0 + h - e), (cx0, sy1, z0 + h - e), (0, 0, -1), [(0, 0.05), (0.45, 0.05), (0.45, 0.6), (0, 0.6)])
     # lift room
-    wall(me, 'x', r0 + e, 1, hy0, c1, z0, zc, 'ss_tw2', step=B4, tbase=hy0)
-    wall(me, 'y', hy0 + e, 1, r0, hx0, z0, zc, 'ss_tw2', step=B4, tbase=r0)
-    wall(me, 'y', c1 - e, -1, r0, hx0 + 0.3, z0, zc, 'ss_tw2', step=B4, tbase=r0)
+    if F1122_W:                                            # (fix1122-world B2, owner 11-22 mark 21: on the 4.6 m lift room walls the dado + amber line sat at 0.92 m, in the
+        for ax_, pl_, f_, a_, b_, tb_ in (('x', r0 + e, 1, hy0, c1, hy0), ('y', hy0 + e, 1, r0, hx0, r0), ('y', c1 - e, -1, r0, hx0 + 0.3, r0)):   #  corridor at 0.48 m:
+            wall(me, ax_, pl_, f_, a_, b_, z0, z0 + h, 'ss_tw2', step=B4, tbase=tb_)                                      #  the corridor's 2.4 m bay low,
+            wall(me, ax_, pl_, f_, a_, b_, z0 + h, zc, 'ss_tw2', ztop=zc + 0.05 * (zc - z0 - h) / 0.55, H=(zc - z0 - h) / 0.55, step=B4, tbase=tb_)   #  plain concrete over it)
+    else:
+        wall(me, 'x', r0 + e, 1, hy0, c1, z0, zc, 'ss_tw2', step=B4, tbase=hy0)
+        wall(me, 'y', hy0 + e, 1, r0, hx0, z0, zc, 'ss_tw2', step=B4, tbase=r0)
+        wall(me, 'y', c1 - e, -1, r0, hx0 + 0.3, z0, zc, 'ss_tw2', step=B4, tbase=r0)
     me.quad('ss_tfw', (r0, hy0, z0 + 0.012), (hx0, hy0, z0 + 0.012), (hx0, c1, z0 + 0.012), (r0, c1, z0 + 0.012), (0, 0, 1), [(0, 0), (2, 0), (2, 3), (0, 3)])
     me.quad('ss_tw2', (r0, hy0, zc - e), (hx0, hy0, zc - e), (hx0, c1, zc - e), (r0, c1, zc - e), (0, 0, -1), [(0, 0.05), (1.2, 0.05), (1.2, 0.6), (0, 0.6)])
     # stairs: the side walls follow the slope, 32 steps 0.30 x 0.25 from the shed down to the passage
@@ -1438,7 +1476,8 @@ def way_decor(V):
     # lamps + cages every 4 m along the corridor, two on the stairs, one in the passage, two in the lift room
     pts = [(x, c0 + 0.1, z0 + 2.0, 1) for x in np.arange(hx0 + 2.0, cx1, 4.0)] + [(177.5, 238.6, z0 + 2.0, -1), (172.0, sy0 + 0.1, fl(172.0) + 2.0, 1), (175.5, sy1 - 0.1, fl(175.5) + 2.0, -1),
                                                                                   (160.8, hy0 + 0.1, z0 + 3.0, 1), (160.8, c1 - 0.1, z0 + 3.0, -1)]
-    pts.append((168.9, sy1 - 0.1, fl(168.9) + 2.0, -1))     # (judge E14 11-12: a third lamp at the stairs' top)
+    pts.append((170.6 if F1122_W else 168.9, sy1 - 0.1, fl(170.6 if F1122_W else 168.9) + 2.0, -1))     # (judge E14 11-12: a third lamp at the stairs' top;
+    #  fix1122-world B1, owner 11-22 mark 18: at x 168.9 it hung 0.34 m OVER the shed floor (fl + 2.0 = -6.88), beside a crate: now under the floor slab, east of the hatch)
     for x, y, z, sg in ((cx0 + 0.1, 235.6, z0 + 2.0, 1), (r0 + 0.1, (hy0 + c1) / 2, z0 + 3.0, 1)):   # (judge E14: fill lamps on the passage's and the lift room's west walls, facing +x)
         x1 = x + sg * 0.05
         me.box('ss_stl', min(x, x1), y - 0.12, z - 0.08, max(x, x1), y + 0.12, z + 0.08, solid=False)
@@ -1457,7 +1496,8 @@ def way_decor(V):
     # pipes along the corridor's north wall and down the stairs, a cable tray
     for zp, r_ in ((z0 + 2.12, 0.07), (z0 + 1.95, 0.05)):
         me.cyl('ss_duct', r_, hx0 + 0.3, cx0, 'x', (c1 - 0.14, zp), uv=0.5, seg=8)
-    a_, b_ = (sx0 + 1.2, sy1 - 0.12, fl(sx0 + 1.2) + 2.1), (sx1, sy1 - 0.12, fl(sx1) + 2.1)
+    xd_ = 170.3 if F1122_W else sx0 + 1.2                  # (fix1122-world B1, mark 18: from x 168.2 the cable tray started 1.0 m over the shed floor and ran through the hatch
+    a_, b_ = (xd_, sy1 - 0.12, fl(xd_) + 2.1), (sx1, sy1 - 0.12, fl(sx1) + 2.1)   #  'metal floating on a box': it starts under the floor slab now)
     me.hull('ss_duct', [(a_[0], a_[1] + o_, a_[2] + o2) for o_ in (-0.06, 0.06) for o2 in (-0.06, 0.06)] + [(b_[0], b_[1] + o_, b_[2] + o2) for o_ in (-0.06, 0.06) for o2 in (-0.06, 0.06)], uv=0.5, solid=False)
     # hazard frames: the cell door, the lift room's mouth
     d0, d1 = cx0, cx0 + V.CELL_DOOR_W
@@ -1495,47 +1535,6 @@ def drift(x0, x1, yc, z):
     foot = z - 1.0                                         # (S7 11-15: was z - 0.5: the ground falls away there, one corner hung 0.42 m in the air)
     me.hull('ss_sand', [(x1, yc + o_, foot) for o_ in (-hw, hw)] + [(x0, yc + o_, foot) for o_ in (-hw, hw)] + [(x0, yc + o_, z + 0.75) for o_ in (-hw + 2, hw - 2)] + [(x0 + (x1 - x0) * 0.35, yc + o_, z + 0.42) for o_ in (-hw + 3, hw - 3)], uv=0.12, solid=False)
     me.box(None, x0 - 0.2, yc - 0.1, z - 1.0, x0, yc + 0.1, z - 0.8)
-    return me
-
-
-def drift_east(xf0, xf1, x1, yc, rail_top, ground, core=3.3, side=3.0, cover=0.12, skin=0.06, under=0.35, fade=1.5):
-    """(N3 11-17, ss-ending) sand drifted over the rails at the EAST end, where the dune rises over the line: without it the ballast goes under
-    the sand first and ~10 m of bare sleepers and rail heads taper into the sand at the terrain's 3 % grade (editor S7_1817). A terrain-following
-    mound (ground(x, y) = terrain z, m): over the track (|y - yc| <= core) max(ground + skin, rail_top + cover); a lee face from xf0 (buried)
-    to xf1 (full) where the rails go in; it fades into the dune from x1 - fade to x1 and to the sides over `side` m. Its borders lie `under` m
-    below the terrain, so every seam with the terrain is a crossing at >= ~10 degrees, never a long sliver. Seen only. World m -> Mesh"""
-    xs = sorted(set([round(v, 3) for v in np.arange(xf0 - 1.0, xf1 + 1.01, 0.5)] + [round(v, 3) for v in np.arange(xf1 + 1.0, x1 - fade, 1.0)] +
-                    [round(v, 3) for v in np.arange(x1 - fade - 0.5, x1 + 0.01, 0.5)]))
-    ys = list(np.arange(-(core + side + 0.5), core + side + 0.51, 0.5))
-    sm = lambda t: (lambda c: c * c * (3 - 2 * c))(min(1.0, max(0.0, t)))
-    me = Mesh(((xs[0] + xs[-1]) / 2, yc, rail_top), ['ss_sand'])
-    P = np.zeros((len(xs), len(ys), 3))
-    for i, x in enumerate(xs):
-        wx = sm((x - xf0) / (xf1 - xf0)) * (1.0 - sm((x - (x1 - fade)) / fade))
-        for j, dy in enumerate(ys):
-            g = ground(x, yc + dy)
-            b = max(skin, rail_top + cover - g)                # over the terrain at the track
-            h = -under + (b + under) * wx                      # the lee face and the east fade
-            h = h + (-under - h) * sm((abs(dy) - core) / side)  # the sides
-            P[i, j] = (x, yc + dy, g + h)
-    N = np.zeros_like(P)                                       # smooth normals (the sun lights it by them)
-    gx, gy = np.gradient(P[:, :, 2], np.array(xs), np.array(ys))
-    N[:, :, 0], N[:, :, 1], N[:, :, 2] = -gx, -gy, 1.0
-    N /= np.linalg.norm(N, axis=2, keepdims=True)
-    nj = len(ys)
-    T = []
-    for i in range(len(xs) - 1):
-        for j in range(nj - 1):
-            a, b_, c, d = i * nj + j, (i + 1) * nj + j, (i + 1) * nj + j + 1, i * nj + j + 1
-            T += [(a, b_, c), (a, c, d)]
-    T = np.array(T)
-    Pf = (P.reshape(-1, 3) - me.o) * M
-    Nf = N.reshape(-1, 3)
-    T = SL._orient(Pf, T, Nf, Nf[T].mean(1))
-    U = (P.reshape(-1, 3)[:, :2] - me.o[:2]) * 0.12           # (the west drift's sand scale)
-    me.g['ss_sand'].append((Pf, T, Nf, U))
-    me.box(None, xs[0], yc - 0.1, rail_top - 1.4, xs[0] + 0.2, yc + 0.1, rail_top - 1.2)   # (a model needs a collision piece: buried)
-    me.grid = P                                                # (for the offline check)
     return me
 
 

@@ -400,11 +400,6 @@ def _board(w=5.0, h=2.5):
 
 
 F_ = -34.0                                                        # (ssbase.F, the hall floor)
-# (N5 11-17, ss-ending; default OFF = the installed place): the hall mural mur_m2 (4.46 m tall, F_+5.0..9.46) hangs behind the south wall's
-#  long pipe (ssbase.py hall: cyl r 0.16 at y Y0+0.4, z F+7.6, x X0..X1) which crosses its middle. SS_MURAL_LOW=1 hangs it 2.15 m lower
-#  (F_+2.85..7.31): 0.13 m under the pipe's lowest face, 0.78 m over the top of 'SS base generator 0' (wd337_11_1, F..F+2.07) under it.
-#  Offline on build/ssb2 (platevis ray check, 810 eye lines): pipe gone from every line; propaudit plates: wall flat behind it both ways.
-MURAL_M2_Z = F_ + (2.85 if os.environ.get('SS_MURAL_LOW', '0') == '1' else 5.0)
 # (sheet, how, ...): 'wall' = the nearest wall of a standing spot (x, y, z of the floor, m), height of the plate's centre, optional point to prefer;
 # 'at' = a known wall: point on it (x, y, z of the plate's bottom centre) and the plate's facing (gamma)
 SPOTS = [
@@ -417,7 +412,7 @@ SPOTS = [
     ('por_p1', 'wall', (93.7, 242.1, 10.0), 1.8, None),
     ('ban_iraq', 'wall', (68.1, 272.6, 14.6), 2.2, None),
     # under the hill
-    ('mur_m2', 'at', (186.0, 196.03, MURAL_M2_Z), 0.0),
+    ('mur_m2', 'at', (186.0, 196.03, F_ + 5.0), 0.0),
     ('ban_bilruh', 'at', (268.0 - 0.03, 240.0, F_ + 9.0), math.pi / 2),
     ('por_p1', 'at', (266.0 - 0.03, 205.0, F_ + 1.9), math.pi / 2),
     ('ban_nasr', 'at', (266.0 - 0.03, 200.5, F_ + 2.35), math.pi / 2),
@@ -441,7 +436,7 @@ SPOTS2 = [
     ('por_p2', 'wall', (78.5, 118.0, 0.49), 1.75, None),      # the south barracks' lobby
     ('por_p1', 'wall', (129.5, 246.0, -6.83), 1.75, None),    # the north barracks' lobby
     ('ban_iraq', 'wall', (68.1, 272.6, 14.6), 2.2, None),
-    ('mur_m2', 'at', (186.0, 196.03, MURAL_M2_Z), 0.0),
+    ('mur_m2', 'at', (186.0, 196.03, F_ + 5.0), 0.0),
     ('ban_bilruh', 'at', (268.0 - 0.03, 240.0, F_ + 3.2), math.pi / 2),       # (judge V11: 9 m up it read as a thin red strip)
     ('fr_b', 'at', (266.0 - 0.03, 207.3, F_ + 1.4), math.pi / 2),             # (judge V06: at 205 it stood behind the cable-reel rack)
     ('ban_nasr', 'at', (266.0 - 0.03, 200.5, F_ + 2.35), math.pi / 2),

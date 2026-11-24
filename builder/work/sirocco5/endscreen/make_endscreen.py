@@ -1,7 +1,7 @@
-"""make_endscreen - our own end picture for the campaign (owner 11-15 R14: no Patch screen, not "THE END", leave a hook).
+"""make_endscreen - our own end picture for the campaign (owner 11-15 R14: no Neonix screen, not "THE END", leave a hook).
 
 The engine shows screens/intro/<language>/congratulations.jpg after the last mission's stats if it exists (introscreen.c l.145-158),
-else the plain screens/intro/congratulations.jpg (= the Patch patch's picture on the owner's PC). We never touch or ship the Patch
+else the plain screens/intro/congratulations.jpg (= the Neonix patch's picture on the owner's PC). We never touch or ship the Neonix
 file: ss-int's installer copies THIS picture as NEW files SCREENS\\intro\\english\\congratulations.jpg and SCREENS\\intro\\USA\\congratulations.jpg
 (and deletes them on rollback). Same size and format as the stock file: 640 x 480 RGB baseline JPEG.
 
@@ -97,14 +97,12 @@ def main():
     img = Image.composite(img, Image.new('RGB', (w, h), (0, 0, 0)), vig)
     # the words
     d = ImageDraw.Draw(img)
-    f_big = font(['impact.ttf', 'arialbd.ttf'], 56 * S)     # (orch-2 decision 104: 62 -> 56, the block moves up)
-    f_ar = font(['tahomabd.ttf', 'arialbd.ttf', 'arial.ttf'], 36 * S)   # (44 -> 36)
+    f_big = font(['impact.ttf', 'arialbd.ttf'], 62 * S)
+    f_ar = font(['tahomabd.ttf', 'arialbd.ttf', 'arial.ttf'], 44 * S)
     f_small = font(['arialbd.ttf', 'arial.ttf'], 14 * S)
 
-    def centre(text, f, top, fill, spacing=0, shadow=True):
-        """draw text centred with its GLYPH top at `top` (2x px) -> its glyph bottom incl. the shadow (2x px)"""
+    def centre(text, f, y, fill, spacing=0, shadow=True):
         bb = d.textbbox((0, 0), text, font=f)
-        y = top - bb[1]
         tw = bb[2] - bb[0] + spacing * (len(text) - 1)
         x = (w - tw) / 2 - bb[0]
         if spacing:
@@ -117,18 +115,11 @@ def main():
             if shadow:
                 d.text((x + 2 * S, y + 2 * S), text, font=f, fill=(0, 0, 0))
             d.text((x, y), text, font=f, fill=fill)
-        return y + bb[3] + (2 * S if shadow else 0)
 
-    # orch-2 decision 104 (sheet r14_end.jpg): the engine's MISSION STATS table is drawn over this picture and covered half of the Arabic
-    # word - the title block ends above y 165 (of 480), nothing but sky and glow from 165 to 300; the hook line stays where it was
-    TITLE_END = 165
-    b1 = centre('OPERATION SIROCCO', f_small, 18 * S, (170, 150, 110), spacing=5 * S)
-    b2 = centre('TO BE CONTINUED', f_big, b1 + 12 * S, (236, 232, 222), spacing=2 * S)
-    b3 = centre(ar('يتبع'), f_ar, b2 + 14 * S, (222, 170, 70))
-    assert b3 <= (TITLE_END - 5) * S, 'title block ends at y %.0f, must end above %d' % (b3 / S, TITLE_END)
-    print('title block: OPERATION SIROCCO to y %.0f, TO BE CONTINUED to y %.0f, Arabic to y %.0f (limit %d)' % (b1 / S, b2 / S, b3 / S, TITLE_END))
-    hook = 'JONES... DON\'T COME HOME. NOT YET.'
-    centre(hook, f_small, int(h * 0.90) + d.textbbox((0, 0), hook, font=f_small)[1], (150, 140, 120), spacing=2 * S)   # (unchanged: same draw origin)
+    centre('OPERATION SIROCCO', f_small, int(h * 0.12), (170, 150, 110), spacing=5 * S)
+    centre('TO BE CONTINUED', f_big, int(h * 0.20), (236, 232, 222), spacing=2 * S)
+    centre(ar('يتبع'), f_ar, int(h * 0.36), (222, 170, 70))
+    centre('JONES... DON\'T COME HOME. NOT YET.', f_small, int(h * 0.90), (150, 140, 120), spacing=2 * S)
     img2 = img.resize((W, H), Image.LANCZOS)
     out = os.path.join(HERE, 'congratulations.jpg')
     img2.save(out, 'JPEG', quality=92, optimize=False, progressive=False, subsampling=2)

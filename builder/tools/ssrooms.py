@@ -687,9 +687,31 @@ def _transom():
     return MK.model([(0, planks), (1, batten)], [_nocoll()])
 
 
+def _lbox(x0, y0, z0, x1, y1, z1):
+    """(fix1120 W1, owner 11-20 marks 4 7 16 21: the Arabic on the sacks and cartons read upside down and mirrored) a box whose every face shows
+    its printed label the right way up and the right way round, by MK.panel's rule: v 0 (the image's top row) at the face's top, u to the right of a
+    man looking at that face. box_m maps v up the face (upside down) and u the same world way on opposite faces (mirrored on one of each pair).
+    One copy per face, two side by side on a face more than ~3x as wide as tall; the top reads from its long side"""
+    import biprefabs as BP
+    P, T_, N, U = BP.box_m(x0, y0, z0, x1, y1, z1)
+    C = np.array([(x, y, z) for x in (x0, x1) for y in (y0, y1) for z in (z0, z1)], float)
+    U2 = np.zeros((len(P), 2))
+    for k in range(len(P)):
+        n = N[k]; p = P[k] / 4096.0
+        if abs(n[2]) > 0.5:
+            r, up = (np.array([1.0, 0, 0]), np.array([0, 1.0, 0])) if (x1 - x0) >= (y1 - y0) else (np.array([0, 1.0, 0]), np.array([-1.0, 0, 0]))
+        else:
+            r, up = np.cross(-np.asarray(n, float), [0, 0, 1.0]), np.array([0, 0, 1.0])
+        cr, cu = C @ r, C @ up
+        w, h = cr.max() - cr.min(), cu.max() - cu.min()
+        nc = max(1, int(round((w / h) / 1.6)))
+        U2[k] = ((p @ r - cr.min()) / w * nc, (cu.max() - p @ up) / h)
+    return P, T_, N, U2
+
+
 def _carton():
     import modelkit as MK, biprefabs as BP
-    b = BP.box_m(-0.25, -0.2, 0.0, 0.25, 0.2, 0.34, uv=2.0)
+    b = _lbox(-0.25, -0.2, 0.0, 0.25, 0.2, 0.34)            # (fix1120 W1: was box_m uv=2.0, the label upside down / mirrored and cut by the tiling)
     return MK.model([(0, [b])], [b])
 
 
@@ -755,7 +777,7 @@ def _sacks():
     for k, z in enumerate((0.12, 0.38)):
         for x in (-0.4, 0.0, 0.4):
             dx = 0.02 if k else 0.0
-            s.append(bx(x - 0.19 + dx, -0.47, z, x + 0.19 + dx, 0.47, z + 0.25, uv=1.4))
+            s.append(_lbox(x - 0.19 + dx, -0.47, z, x + 0.19 + dx, 0.47, z + 0.25))   # (fix1120 W1: was bx(..., uv=1.4): the word upside down, mirrored, tiled)
     return MK.model([(0, s), (1, p)], [bx(-0.6, -0.5, 0.0, 0.6, 0.5, 0.64)])
 
 
@@ -1039,15 +1061,16 @@ def merged(items):
     cm = [([], [], [], {}, [0]) for _ in (0, 1)]           # (each mesh on its own: mesh 1 is the originals' coarse hull, about 0.2 m larger; per-face kinds stay)
     for md, x, y, z, yaw in items:
         seen_only = md.endswith('~')
-        md = md.rstrip('~')
+        coll_only = md.endswith('^')                       # (fix1122-use U10: '^' = collision only, nothing drawn: a piece that must leave the graph as it was)
+        md = md.rstrip('~^')
         rm, tx, _ = _source(md)
         Rm = navgen.rot(0.0, 0.0, float(yaw))
         off = (np.array((x, y, z)) - o) * 4096.0
-        for g in rm.groups:
+        for g in (() if coll_only else rm.groups):
             k = (tx[g.tex], g.flags)
             e = groups.setdefault(k, ([], [], [], [0]))
             e[0].append(g.pos @ Rm.T + off); e[1].append(g.uv); e[2].append(g.tris + e[3][0]); e[3][0] += len(g.pos)
-        if rm.glows is not None and len(rm.glows):
+        if rm.glows is not None and len(rm.glows) and not coll_only:
             q = rm.glows.copy()
             q['pos'] = np.asarray(q['pos'], float) @ Rm.T + off
             glo.append(q)
@@ -1143,10 +1166,14 @@ def office():
 
 def stores():
     """sorted by kind: arms to the west, stores and cartons by the north wall, flour to the east, fuel out of the way in the south-east"""
+    # (fix1122-use U10, owner pic 54 round 2 'things clip into the stairs': the storage house's own steel stair runs along the north wall, treads
+    #  x 155.1 (z 4.4) .. 160.6 (z 0.6), y 104.8..107.3, stringers to x 161.14 (rays on 434_37_1 mesh 0). The shelves at x 157.6 and 161.3 and their
+    #  four cartons stood under / in its steps. They are '^' now = collision only, not drawn (merged()): the room's collision and so the AI graph and
+    #  every pick() stay as they were; only the 162.9 shelf, clear of the stair, is seen there)
     f, g = F_STS, F_STN
     P = [('306_01_1', 147.7, 105.8, f, 0.0), ('306_01_1', 150.0, 105.8, f, 0.0), ('306_01_1', 147.7, 105.8, f + 1.5, 0.0), ('205_17_1', 161.4, 102.6, f, 0.0), ('205_17_1', 158.7, 102.6, f, 0.0),
-         ('260_03_1', 145.6, 101.0, f, 0.0), ('260_03_1', 145.6, 100.0, f, 0.0), ('230_19_1', 157.6, 106.15, f, N), ('230_19_1', 161.3, 106.15, f, N), ('230_19_1', 162.9, 106.15, f, N),
-         ('231_17_1', 157.3, 106.15, f + 0.68, 0.2), ('231_17_1', 157.9, 106.1, f + 0.68, 1.1), ('231_19_1', 161.2, 106.15, f + 0.68, 0.0), ('231_17_1', 161.0, 106.15, f + 1.55, 0.7),
+         ('260_03_1', 145.6, 101.0, f, 0.0), ('260_03_1', 145.6, 100.0, f, 0.0), ('230_19_1^', 157.6, 106.15, f, N), ('230_19_1^', 161.3, 106.15, f, N), ('230_19_1', 162.9, 106.15, f, N),
+         ('231_17_1^', 157.3, 106.15, f + 0.68, 0.2), ('231_17_1^', 157.9, 106.1, f + 0.68, 1.1), ('231_19_1^', 161.2, 106.15, f + 0.68, 0.0), ('231_17_1^', 161.0, 106.15, f + 1.55, 0.7),
          ('231_17_1', 162.7, 106.15, f + 1.55, 0.3), ('239_01_1', 162.9, 106.15, f + 0.68, PI / 2)]
     P += boxes('239_01_1', ((145.0, 95.4), (146.0, 95.4), (147.0, 95.4)), f) + boxes('239_01_1', ((145.0, 95.4), (146.0, 95.4)), f + 0.5) + boxes('306_01_1', ((145.6, 92.4),), f, PI / 2)
     P += boxes('ssw_sack_1', ((164.75, 106.47), (167.2, 106.47), (168.6, 106.47), (164.75, 105.44), (167.2, 105.44)), f) + boxes('ssw_sack_1', ((164.75, 106.47), (167.2, 106.47)), f + 0.64, 0.1)

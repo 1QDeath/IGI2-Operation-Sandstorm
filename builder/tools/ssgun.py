@@ -37,6 +37,10 @@ WAVES = (35, 90, 150)                                      # (owner 91) stair te
 GUN_ACC = (14, 2, 1)                                       # (owner 89: soldiers' min, med, max range accuracy % while Jones is on the gun. C3 default 65-70, 20, 15-17; a shot gets x2 after 4 s in sight, igi2 HumanAIContent)
 WB_Z, WB_Y = FZ + 1.45, RY1 - 0.06                         # (owner 99) the wooden bar on the wall left of the stair door: height, its middle off the wall
 WB_X0, WB_SLIDE, WB_LEN = 172.70, 0.28, 0.9               # its middle at rest; Jones' push moves it 0.28 m right, its right end then crosses the door's edge into the staple
+# (fix1122-use U5, owner pic 11 round 2: 'the door is closed but the wood bar is still on the wall, not on the door'. The 0.28 m push only put the bar's
+#  end over the door's edge. Now a 1.5 m bar that rests on the wall left of the doorway and slides 1.5 m ACROSS the closed leaf, into two staples on the
+#  jambs either side (DOOR_X - 0.07, DOOR_X + 1.27): barred = the bar lies across the whole door)
+WB_X0, WB_SLIDE, WB_LEN = 172.40, 1.50, 1.5
 WB_USE = (172.85, RY1 + 0.57, WB_Z)                       # use point: the engine stands Jones 0.85 m in front of it, press_alarm's right hand reaches 0.22 m ahead, so the point sits 0.63 m behind the bar
 MAX_RANGE_ACC = 7                                          # (the engine's default 20 %: the far end of the soldiers' accuracy line, past their 30 m med range)
 DOOR_X = 173.3                                             # the stair door in the north wall, x0..x0 + 1.2
@@ -68,7 +72,8 @@ def room():
     me.box(None, RX0, y0, F + RT, x2, y1, F + z1)
     floor(me, 'ss_gw', 172.0, y0, x2, y1, F + z1)
     # --- (owner 99) the staple on the door's edge that takes the wooden bar once it is slid (the two it rests in are the use point's model)
-    staple(me, DOOR_X + 0.06, RY1, WB_Z, -1)
+    for _sx in (DOOR_X - 0.07, DOOR_X + 1.27):              # (fix1122-use U5: a staple on each jamb, the slid bar lies across the leaf between them)
+        staple(me, _sx, RY1, WB_Z, -1)
     # --- hazard line at the lift, a steel ledge on the sill, two thin mullions (the bullets pass them)
     me.box('ss_hz', RX0 + 0.02, _hy0, FZ, RX0 + 0.16, _hy1, FZ + 0.012, uv=0.5, solid=False)
     for a, b, z_ in ((WIN[0], NOTCH[0], WIN[2]), (NOTCH[0], NOTCH[1], NOTCH[2]), (NOTCH[1], WIN[1], WIN[2])):
@@ -109,12 +114,9 @@ def room():
     stair(me, LANDY1, ST_Y1, ST_X0, ST_X1, FZ, F, axis='y', rails=(False, True))
     me.box('ss_stl', ST_X0, ST_Y1 - 0.5, F, ST_X1, ST_Y1 + 0.3, F + 0.03, uv=0.5, solid=False)
     wall_lamp(me, 172.1, LANDY1 - 0.9, FZ + 2.6, 1.0, 0.0, 700.0)
-    # --- (S14 decision 91) the lobby barricade's collision: one box inside the sandbags (screen_props), so rounds and eyes stop at it
+    # --- (S14 decision 91, ported by hand fix1120-logic L12 from main 26fb84e) the lobby barricade's collision: one box inside the sandbags (screen_props), so rounds and eyes stop at it
     if S14B_ON:
         me.box(None, *SCREEN_BOX)
-    if S14W_ON:                                            # (S14 window) the shutter's two guide channels on the front wall's face, from under the leaf to the roof
-        for a_, b_ in ((WSHUT[1] - 0.2, WSHUT[1] - 0.02), (WSHUT[2] + 0.02, WSHUT[2] + 0.2)):
-            me.box('ss_stl', x2, a_, FZ + WSHUT[3] - 0.1, WSHUT[0] + 0.12, b_, F + RT + 0.35, uv=0.5)
     # --- dark rock behind the walls that stand in the hill (a pressed camera clips through them; rv8)
     bk = 1.0
     bx0, by0, by1, bz0, bz1 = RX0 - 0.3 - bk, y0 - bk, y1 + bk, FZ - SLAB - bk, F + z1 + bk
@@ -132,7 +134,7 @@ PROPS = [('stand', '106_03_1', GUN[0], GUN[1], 0.0, 0.66), ('ring', '400_45_1', 
 for k_, y_ in enumerate((CY - 5.9, CY - 3.8, CY + 3.8, CY + 5.9)):
     PROPS.append(('bags %d' % k_, GR.SB_STRAIGHT, RX1 - 0.34, y_, 0.0, math.pi / 2))
 PROPS += [('crew table', '231_03_1', 170.2, 232.4, 0.0, 0.0), ('crew chair 1', '261_06_1', 169.4, 231.3, 0.0, 2.8 - math.pi), ('crew chair 2', '261_06_1', 171.1, 231.3, 0.0, 3.5 - math.pi),
-          ('ammo case 1', '306_01_1', 169.4, 220.0, 0.0, 0.0), ('ammo case 2', '306_01_1', 171.8, 220.0, 0.0, 0.1), ('crate', '330_01_1', 174.1, 219.9, 0.0, 0.3), ('crate 2', '330_02_1', 168.9, 233.6, 0.0, 0.0)]
+          ('ammo case 1', '306_01_1', 169.4, 220.0, 0.0, 0.0), ('ammo case 2', '306_01_1', 171.8, 220.0, 0.0, 0.1), ('crate', '330_01_1', 174.1, 219.9, 0.0, 0.3), ('crate 2', '330_01_1', RX0 + 0.66, RY1 - 0.66, 0.0, 0.0)]   # (fix1122-use U8, owner pic 10 round 2: the 2.4 m crate 330_02_1 at (168.9, 233.6) swallowed the crew table's west end and medipack 1; now the 1.2 m crate in the north-west corner, 0.5 m clear of the table)
 LOOT = (('medipack 1', 'WEAPON_ID_MEDIPACK', 169.9, 232.4, 0.82), ('medipack 2', 'WEAPON_ID_MEDIPACK', 170.6, 232.5, 0.82))
 MGSIGHT_ON = os.environ.get('SS_MGSIGHT', '1') == '1'      # (owner 11-12, rc7r) the gunner's box sight on the gun's own holder; the exe (v11) draws the window, owns zoom and heat
 MGSIGHT_COMPACT = MGSIGHT_ON and os.environ.get('SS_MGSIGHT_COMPACT', '1') == '1'   # (sight v3) the compact scope on the receiver: needs the exe that hides the gun in the sight (v14)
@@ -140,22 +142,11 @@ SIGHT_ON = not MGSIGHT_ON and os.environ.get('SS_SIGHT', '1') == '1'           #
 SIGHT = (170.3, 232.15, 0.84)                              # (owner 97) the thermal sight on the medic table, beside the medipacks
 CAM_R, PIN_R = 0.55, 0.70                                  # (owner 117) half sizes of the eye box and the body box round the pivot
 MOUNT = (173.7, 226.7)                                     # (owner 97) where the engine counts a MOUNTED Jones for AreaActivate (probe th5: the box at 173.7 lit only on the gun; his drawn body sits at 174.65, his feet on foot at 173.1-173.4)
-S14B_ON = os.environ.get('SS_S14B', '1') == '1'           # (S14 owner 11-15 'men hiding underneath shoot at him through the wall'; PLAN decision 91, 11-17) the lobby barricade, below
+S14B_ON = os.environ.get('SS_S14B', '1') == '1'           # (S14 owner 11-15 'men hiding underneath shoot at him through the wall'; PLAN decision 91, 11-17; fix1120 L12 port of main 26fb84e) the lobby barricade, below
 SCREEN_X = 173.78                                          # (S14) the sandbag wall in front of the lift doorway (hall side, under the gun room): its middle, world x. 1.4 m walk passage to the hall's west wall face (x 172.0)
 SCREEN_N, SCREEN_STEP, SCREEN_Y0 = 5, 1.8, 223.1           # five 2 m straights per row, 0.2 m overlap: y 222.1 - 231.3 (the doorway y 225.4 - 228.0)
 SCREEN_ROWS, SCREEN_ROW_H = 2, 1.16                        # two rows (360_05_1 is 1.18 m high): top 2.34 m, the door head is 2.5
-SCREEN_BOX = (173.48, 222.25, F, 174.05, 231.15, F + 2.30)  # (S14) the bullet-stop box inside the bags (gun room mesh, BULLET_STOP 12): x0, y0, z0, x1, y1, z1. ssbullet: 0 open lines from x >= 173.6 into the vestibule (dense grid), 421 without
-# (S14 WINDOW, orch-2 11-17 11:39; l4 legs: 10-13 hits right after E, both builds) E puts Jones down 1.05 m behind the pivot on the barrel line, so every man the gun
-# can hit sees him there: work/sslife/s14wcheck.py on s14b1 = 7445 open lines from the gallery floor (12-59 m), 2674 silo hall, 3836 from the deck / spur posts (F+7,
-# 44-85 m, nearly level: they still see him 3 m in); none from under the window. The rounds come through the notch the gun itself fires through (side bays shut:
-# 7445 -> 7394), the nest rule already gives them 14/2/1 % there (58 of 58 hall men). So a steel shutter on the window's face: UP while he is on the gun, DOWN
-# once he is off it (after his first time on it, so he still sees the site when he walks in). Leaf x 176.07-176.23 (the muzzle reaches 175.94), y 219.5-233.9,
-# 0.1-1.75 m over the room floor (the eyes are all lower than his head, so every line to him crosses it lower); parked 1.75-3.4 m: M2 reach 591 of 591 cells.
-S14W_ON = os.environ.get('SS_S14W', '0') == '1'           # default OFF until orch-2's word (no build yet)
-WSHUT = (176.15, 219.5, 233.9, 0.1, 1.75)                  # leaf middle x, y0, y1, z0, z1 over the room floor
-WSHUT_TIME = float(os.environ.get('SS_S14W_TIME', '0.8'))   # door arg 14 = open time in s (chkdoors.py door args): down 0.8 s after E
-if S14W_ON and os.environ.get('SS_BULLETSTOP', '1') != '0':
-    SB.MK.SURFACE['ss_gshut_1'] = 5                        # StrongMetal (penetration 20), like the blast gates
+SCREEN_BOX = (173.48, 222.25, F, 174.05, 231.15, F + 2.30)  # (S14) the bullet-stop box inside the bags (gun room mesh): x0, y0, z0, x1, y1, z1
 CREW = ((170.0, 230.6, -1.466, 'stand_talk1'), (171.9, 230.8, 1.676, 'stand_talk2'))   # (S11-A owner 11-15 'two soldiers both looking at the wall': the old 0.3 / 3.5 rad stood them 101 / 105 degrees off each other, one nose to the furniture; now face to face across 1.9 m)
 
 
@@ -226,37 +217,18 @@ def gates(g):
         m.set(i, 18, '1'); m.set(i, 19, 'Door_%d.isClosed && %s %s && %s' % (i, f, fl_, still)); m.set(i, 20, shut)
     for i in (G1, G2):
         m.set(i, 7, 2.85); m.set(i, 21, True)
-    bar = roll('SS gun room door bar', 'ss_wbar_1', (WB_X0, WB_Y, WB_Z), 0.35)   # (owner 99: the wooden bar slides with Jones' push, from the start of the use)
+    bar = roll('SS gun room door bar', 'ss_wbar_1', (WB_X0, WB_Y, WB_Z), 0.8)   # (fix1122-use U5: 1.5 m of slide, 0.8 s)   # (owner 99: the wooden bar slides with Jones' push, from the start of the use)
     did, lock, pad = g['GUNROOM_DOOR'], g['GUNROOM_LOCK'], g['GUNROOM_PAD']
     m.set(bar, 6, WB_SLIDE); m.set(bar, 7, 0.0)            # (args 6, 7 = the slide in the leaf's x, y: a lying leaf's y is world up, wb1 slid it up)
     m.set(bar, 19, 'GenericTBA_%d.isInUse || GenericTBA_%d.isFinished || EditVariable_%d.nValue == 1' % (pad, pad, lock))
     m.set(bar, 20, '!GenericTBA_%d.isInUse && !GenericTBA_%d.isFinished && EditVariable_%d.nValue == 0' % (pad, pad, lock))   # (review: no tick where the use is over but the lock not yet counted; as ssbay)   # (a use let go early: the bar goes back)
     for k_ in (24, 25, 26, 27):                            # (no blast-door noise: the use's own sound is the slide)
         m.set(bar, k_, '')
+    m.set(bar, 21, False)                                  # (fix1122-use U5: StopOnCollision off: a leaf an AI left open must not stop the bar half way)
     m.set(S[0], 9, '!Lift_%d.isMoving && %s != 1 && EditVariable_%d.nValue == 0' % (lid, f, C1))
     m.set(S[1], 9, '!Lift_%d.isMoving && %s != 2 && EditVariable_%d.nValue == 0' % (lid, f, C2))
     LIFT.update(gate_mid=G1, gate_bot=G2, call=S, c1=C1, c2=C2)
     print('ssgun: landing gates %d %d, call buttons %s, rule lengths up %d down %d' % (G1, G2, S, len(up), len(down)))
-
-
-def window_shutter(g):
-    """(S14 window) the steel shutter on the window's face: down whenever Jones is not on the gun, once he has been on it; up while he is (the place() boxes:
-    eye on the gun, body not at the pivot). Door.c starts it shut, the open rule lifts it at the start. Called by the builder AFTER its last nid() (beside
-    S14b's screen_props): two new tasks fill free ids at the end, no later task moves (review 11-17)"""
-    m, T, nid = g['m'], g['T'], g['nid']
-    cam, pin = g['GUNROOM_CAM'], g['GUNROOM_PIN']
-    on = 'AreaActivate_%d.nActive == 1 && AreaActivate_%d.nActive == 0' % (cam, pin)
-    off = '(AreaActivate_%d.nActive == 0 || AreaActivate_%d.nActive == 1)' % (cam, pin)
-    v = nid()
-    m.add_child(4029, T(v, 'EditVariable', 'SS M2HB manned once', 0.0, 0.0, 0.0, 0, 'EditVariable_%d.nValue == 0 && %s' % (v, on), ''))
-    d = g['roll_gate']('SS gun room window shutter', 'ss_gshut_1', (WSHUT[0], (WSHUT[1] + WSHUT[2]) / 2, FZ + WSHUT[3]), WSHUT_TIME)   # (arg 14 = open time, s)
-    m.set(d, 7, WSHUT[4] - WSHUT[3])                      # (a lying leaf's y is world up: it rolls up its own height, in front of the window head)
-    m.set(d, 19, 'Door_%d.isClosed && (EditVariable_%d.nValue == 0 || (%s))' % (d, v, on))
-    m.set(d, 20, 'EditVariable_%d.nValue == 1 && %s' % (v, off))
-    for k_ in (24, 25, 26, 27):                            # (no blast-door noise at his ear on every mount / dismount: a sound needs its own ear take first)
-        m.set(d, k_, '')
-    g['GUNROOM_SHUTTER'], g['GUNROOM_MANNED'] = d, v
-    print('ssgun: S14 window shutter %d (%.1f s travel), manned-once latch %d' % (d, WSHUT_TIME, v))
 
 
 def cage(me, x, y, z, L):
@@ -352,25 +324,6 @@ def lgate_model():
     return me.model(alpha=(GR.S_MESH,), even=['ss_stl'])
 
 
-def wshut_model():
-    """(S14 window) the shutter leaf: steel plate, ribs across, hazard foot; origin = bottom middle, built lying down and turned up by alpha like the roll gates"""
-    hw, h = (WSHUT[2] - WSHUT[1]) / 2, WSHUT[4] - WSHUT[3]
-    me = Mesh((0, 0, 0), ['ss_stl', 'ss_hz'])
-    uv = [(0, h / 2), (hw, h / 2), (hw, 0), (0, 0)]
-    me.quad('ss_stl', (0.05, -hw, 0), (0.05, hw, 0), (0.05, hw, h), (0.05, -hw, h), (1, 0, 0), uv)
-    me.quad('ss_stl', (-0.05, hw, 0), (-0.05, -hw, 0), (-0.05, -hw, h), (-0.05, hw, h), (-1, 0, 0), uv)
-    me.box('ss_hz', -0.07, -hw, 0.0, 0.07, hw, 0.18, uv=0.5, solid=False)
-    for z_ in np.arange(0.45, h - 0.05, 0.32):
-        me.box('ss_stl', -0.07, -hw, z_, 0.07, hw, z_ + 0.05, uv=0.5, solid=False)
-    me.box('ss_stl', -0.07, -hw, h - 0.06, 0.07, hw, h, uv=0.5, solid=False)
-    me.box(None, -0.06, -hw, 0, 0.06, hw, h)
-    R = np.array([[1, 0, 0], [0, 0, 1], [0, -1, 0]], float)
-    for k_ in me.g:
-        me.g[k_] = [(P_ @ R.T, T_, N_ @ R.T, U_) for P_, T_, N_, U_ in me.g[k_]]
-    me.coll = [(P_ @ R.T, T_, N_ @ R.T, U_) for P_, T_, N_, U_ in me.coll]
-    return me.model(even=['ss_stl', 'ss_hz'])
-
-
 def models(g):
     X, VLIB = g['X'], g['_VLIB']
     # (gf4, gf5: a rifle grenade through the window ended the fight in 18 s, Jones blown off the gun at full run; cb1 knew this blast) rifles instead on the posts that see the window
@@ -383,8 +336,6 @@ def models(g):
     g['_GNMESH'] = me
     VLIB.add('ss_gunr_1', lambda: me.model(even=SLOTS), SLOTS, lod_like='406_68_1')
     VLIB.add('ss_lgate_1', lgate_model, ['ss_stl', GR.S_MESH], lod_like='406_68_1')
-    if S14W_ON:
-        VLIB.add('ss_gshut_1', wshut_model, ['ss_stl', 'ss_hz'], lod_like='406_68_1')
     import ssrooms
     VLIB.texture('ss_gwood', ssrooms.tx_wood)
     VLIB.texture('ss_gi2', lambda: tex_gi2(g['_sbget']))
@@ -776,7 +727,6 @@ def place(g):
     m.add_child(4029, T(cam, 'AreaActivate', 'SS M2HB eye on the gun', GUN[0] * M, GUN[1] * M, (FZ + 1.6) * M, 0.0, 0.0, 0.0, 2 * CAM_R * M, 2 * CAM_R * M, 1.6 * M, 'CRITERIA_CAMERA'))
     m.add_child(4029, T(pin, 'AreaActivate', 'SS M2HB body at the pivot', GUN[0] * M, GUN[1] * M, (FZ + 0.8) * M, 0.0, 0.0, 0.0, 2 * PIN_R * M, 2 * PIN_R * M, 3.0 * M, 'CRITERIA_HUMAN0'))
     g['GUNROOM_MOUNTED'] = 'AreaActivate_%d.nActive == 1 && AreaActivate_%d.nActive == 0' % (cam, pin)
-    g['GUNROOM_CAM'], g['GUNROOM_PIN'] = cam, pin
     g['CLOSED_FOR_AI'] = g['CLOSED_FOR_AI'] + (did,)       # (owner 91: a walking soldier follows the graph link, not the door: gx, gz2 men came through with the lock on. No link here, the room is its own island)
     g['GUNROOM_GUN'], g['GUNROOM_DOOR'], g['GUNROOM_LOCK'], g['GUNROOM_PAD'], g['GUNROOM_ZONE'] = gid, did, lock, pad, zone
     print('ssgun: M2HB %d at %s, stair door %d, lock pad %d, on-the-gun zone %d' % (gid, tuple(round(c, 2) for c in GUN), did, pad, zone))
@@ -827,6 +777,25 @@ def stairs(g):
     m.set(did, 19, 'EditVariable_%d.nValue == 1 && EditVariable_%d.nValue == 0' % (first, lock))
 
 
+def _crew_look(g, k):
+    """(fix1120 L8) the ROOM_G node that best lies on the line from crew man k through his mate (within 30 deg of it, 1-8 m out): he looks at the mate"""
+    nodes = g.get('GRAPHS', {}).get(ROOM_G) or []
+    x, y = CREW[k][0], CREW[k][1]
+    mx, my = CREW[1 - k][0], CREW[1 - k][1]
+    want = math.atan2(my - y, mx - x)
+    best = None
+    for q in nodes:
+        dx, dy = q['pos'][0] / M - x, q['pos'][1] / M - y
+        d = math.hypot(dx, dy)
+        if not 1.0 <= d <= 8.0:
+            continue
+        off = abs((math.atan2(dy, dx) - want + math.pi) % (2 * math.pi) - math.pi)
+        if off <= math.radians(30.0) and (best is None or off < best[0]):
+            best = (off, q['id'])
+    print('fix1120 L8: gun room crew %d looks at node %s (off %.0f deg)' % (k, best and best[1], math.degrees(best[0]) if best else -1))
+    return best[1] if best else None
+
+
 def crew(g):
     """two men in the room who talk until the alert; the owner's garrison rules (rifles low, ua = the hall's calm variable)"""
     stairs(g)
@@ -839,6 +808,9 @@ def crew(g):
     for k, (x, y, gam, clip) in enumerate(CREW):
         ev = C('AIFunction_GetCurrentEventType')
         calm = [Call('AIFunction_SetStandActionAnimation', [Str(clip)]), C('AIAction_PlayAnimation', 1, 0)]
+        look_ = _crew_look(g, k)                            # (fix1120 L8 owner pic 25/26: the spawn gamma alone did not hold, both men faced the lift. As talk_pair: LookAtNode the mate, then the talk clip)
+        if look_ is not None:
+            calm = [C('AIAction_LookAtNode', look_, 1)] + calm
         sc = alarmai.compile_ai([alarmai.If(alarmai.EQ(ev, 'AIEVENT_CREATE'), [C('AIFunction_DefaultHandler')],
                                             [alarmai.If(alarmai.EQ(ev, 'AIEVENT_IDLE'),
                                                         [alarmai.If(alarmai.EQ(ua, 1), [C('AIAction_Idle', 'AIACTIONFLAG_NONE')], calm), C('AIFunction_PassEventOnToSquad')],
@@ -893,12 +865,9 @@ def gun_ai_first(alarmai, body, zone):
 
 
 def screen_props(g):
-    """(S14 decision 91, 11-17) the lobby barricade: two rows of the stock 2 m sandbag straight (360_05_1, already in the bank: no LOD slot)
-    in front of the lift doorway on the hall side, offset so a 1.4 m passage runs between it and the wall (Jones turns north or south out of
-    the doorway). Why: a811fff's 6 m sight cap did not take (take l3: shot from arrival at the lift stop); the lines run from the hall through
-    the doorway into the vestibule (ssbullet: 421 open on ssb2), not through walls. The bags are the look, SCREEN_BOX in the room mesh
-    (room()) is the collision that stops rounds and eyes. Called AFTER the builder's last nid() and before the intro actors are removed,
-    so no task id shifts and no freed id is reused. Returns the new task ids"""
+    """(S14 decision 91, 11-17; fix1120 L12 hand port of main 26fb84e) the lobby barricade: two rows of the stock 2 m sandbag straight (360_05_1,
+    already in the bank: no LOD slot) in front of the lift doorway on the hall side, a 1.4 m passage between it and the wall. The bags are the look,
+    SCREEN_BOX in the room mesh (room()) is the collision that stops rounds and eyes. Called AFTER the builder's last nid(). Returns the new task ids"""
     m, T, nid, HALL = g['m'], g['T'], g['nid'], g['HALL']
     out = []
     for r in range(SCREEN_ROWS):

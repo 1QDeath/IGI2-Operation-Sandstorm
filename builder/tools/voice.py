@@ -276,7 +276,7 @@ def radio2(x, rate, seed=0, drive=1.3, hp=300.0, lp=6000.0, hiss_db=-23.0, eq=Tr
     return np.clip(y / max(1e-6, np.abs(y).max()) * 0.9, -1, 1)
 
 
-# ---------------------------------------------------------------------------- recorded lines (voice actors, Patch)
+# ---------------------------------------------------------------------------- recorded lines (voice actors, Neonix)
 ACTORS = os.path.join(ROOT, 'work', 'voice_actors')
 # ss-int 11-15: a Sandstorm build (build_sandstorm.py is __main__) reads the FROZEN intro voices, as the release trees did since 11-14
 # (relbuild52 = installed rc7s25); the live work/voice_actors/sandstorm is mid-rework. SS_LIVE_ACTORS=1 builds with the live takes.

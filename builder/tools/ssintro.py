@@ -70,6 +70,16 @@ HQ_CLEAN = dict(filt=CS.NONE, color=(0.0, 0.0, 0.0), noise=0.0)   # (judge J08: 
 WALL_G = 2.786                                 # (the mesh's screens face its +y, into the room)
 WALL_P = (50.0 - 0.5 * 0.335, 240.36 - 0.5 * 0.943, 6.99)      # (the wall point behind the middle, its end at the stub by the door corridor; the origin stands 0.5 m in front of the wall)
 S = {}                                         # clock marks of this build
+# (fix1123-story S1) the satellite pass before the fall: SS_FIX1123_SAT=0 = without it
+FIX1123_SAT = os.environ.get('SS_FIX1123_SAT', '1') == '1'
+SAT_H = 148.0                                  # m over the ground (the builder asserts outdoor cutscene cameras < 155 m: recon.py overhead flicker)
+SAT_GRADE = (0.90, 0.81, 0.73)                 # satintro GRADES['sepia'] x dim 0.9 (BAND multiply, noise 0 = no CAMERA caption)
+# (fix1123b I1, owner 11-24 on f1123b_2: 'after the satellite zoom the last intro shot shows the 2 ridge soldiers you removed'): the fall (the 18 s descent
+#  over the ridge pickets into Jones' eyes) is cut; the intro ends on the satellite pass, held for Anya's last line, then play. The fall keys are still
+#  made (the black WARM glance at its first view opens the intro) and the two picket actors still take their ids (G43 drops them before the write):
+#  no task id shifts. SS_FIX1123B_NOFALL=0 = the fall as in f1123b_2 (needs the satellite pass: SS_FIX1123_SAT=1)
+FIX1123B_NOFALL = os.environ.get('SS_FIX1123B_NOFALL', '1') == '1' and FIX1123_SAT
+FIX1123B_SAT3 = os.environ.get('SS_FIX1123B_SAT3', '1') == '1' and FIX1123B_NOFALL   # (fix1123b I2: generator 1, generator 2, sewer entrance, each zoomed in and out)
 
 
 def U(p):
@@ -254,14 +264,76 @@ def keys(G):
     ks += [dict(k_, fov=HQ_FOV2, **HQ_CLEAN) for k_ in k2]
     caps += [(round(c_[0] + t, 2),) + tuple(c_[1:]) for c_ in c2]
     t += sum(k_['dur'] for k_ in k2)
+    # ==== fix1123-story S1 (owner 11-23 pics 19-23: 'like the original IGI ... showing from the satellite, zooming in, the whoosh ... the generators,
+    #      the computer station, from the sky, not from under'). Between Anya's second HQ shot and the fall: the IGI satellite pass (tools/satintro.py
+    #      DRAFT2 look: straight down, north up, sepia grade, a creep zoom in each step, static between steps) over the south compound's two generators,
+    #      then over the west admin building that holds the server, on Anya's line ss_ia3 (same text, the cached voice). Under the builder's 155 m
+    #      outdoor-camera rule (148 m over the ground), in-game light. S['sat'] = the static moments (whoosh/static cues, build_sandstorm block B 1123)
+    S['sat'] = []
+    if FIX1123_SAT:
+        IA3_ = "ANYA: Cut the power in the south compound. That opens the sewer into the airbase. Hack their server, and find out what Hadi died for."             if os.environ.get('SS_FIX1122_STORY', '1') == '1' else "ANYA: Cut the power in the south compound. That opens the sewer into the airbase. Hack their server, take Kral's laptop, and find out what Hadi died for."
+        d3_, s3_ = vo('ss_ia3', IA3_, 'Anya')
+        ter = G['TERR']
+        S['sat0'] = t
+        sk_ = []
+        if FIX1123B_SAT3:                           # (fix1123b I2, owner 11-24: zoom IN and back OUT on each target in turn: generator 1 (TBA 150, the east
+            #  house), generator 2 (TBA 152, the yard), the sewer entrance (hut door 3927, the shaft Jones takes), same satellite look; burst between steps)
+            st_ = (s3_ + 1.8) / 3.0
+            for k_, (tid_, f0_, f1_) in enumerate(((150, 0.62, 0.24), (152, 0.62, 0.24), (3927, 0.62, 0.26))):
+                tg_ = G['P'](tid_)
+                gz_ = float(ter.height(tg_[0], tg_[1]))
+                p_ = (float(tg_[0]), float(tg_[1]), gz_ + SAT_H * M)
+                l_ = (float(tg_[0]), float(tg_[1]) + 0.01 * M, gz_)
+                S['sat'].append(round(t + sum(k2_['dur'] for k2_ in sk_), 2))
+                sk_.append(atmos.static_burst(p_, l_, 0.35 if k_ == 0 else 0.3, f0_, (0.55, 0.5, 0.4), shake=0.01))
+                sk_ += [CS.key(p_, l_, 0.55 * st_, True, fov=f0_, filt=CS.BAND, color=SAT_GRADE, noise=0.0),     # zoom in
+                        CS.key(p_, l_, 0.45 * st_, True, fov=f1_, filt=CS.BAND, color=SAT_GRADE, noise=0.0),     # and back out
+                        CS.key(p_, l_, 0.0, False, fov=f0_, filt=CS.BAND, color=SAT_GRADE, noise=0.0)]
+            S['sat_extra'] = len(sk_) - 6                   # (keys over the 11-23 pass's 6: taken off the burned fall ids, no id shifts)
+        for k_, (tg_, sec_, f0_, f1_) in enumerate(() if FIX1123B_SAT3 else ((G['SOUTH'], 0.45 + 0.58 * s3_, 0.62, 0.30), (G['ADMIN'], 0.42 * s3_ + 0.9, 0.55, 0.26))):
+            gz_ = float(ter.height(tg_[0], tg_[1]))
+            p_ = (float(tg_[0]), float(tg_[1]), gz_ + SAT_H * M)
+            l_ = (float(tg_[0]), float(tg_[1]) + 0.01 * M, gz_)
+            S['sat'].append(round(t + sum(k2_['dur'] for k2_ in sk_), 2))
+            sk_.append(atmos.static_burst(p_, l_, 0.35 if k_ == 0 else 0.3, f0_, (0.55, 0.5, 0.4), shake=0.01))
+            sk_ += [CS.key(p_, l_, sec_, True, fov=f0_, filt=CS.BAND, color=SAT_GRADE, noise=0.0),
+                    CS.key(p_, l_, 0.0, False, fov=f1_, filt=CS.BAND, color=SAT_GRADE, noise=0.0)]
+        ks += sk_
+        caps += [(round(t + 0.35 + 0.3, 2), 'SS_CF_1', IA3_, d3_, s3_ + 0.3)]
+        t += sum(k_['dur'] for k_ in sk_)
+        print('fix1123 S1: satellite pass %.1f-%.1f s (generators %s, server building %s), %.0f m up' % (S['sat0'], t, [round(c_ / M, 1) for c_ in G['SOUTH'][:2]], [round(c_ / M, 1) for c_ in G['ADMIN'][:2]], SAT_H))
+    # ==== end fix1123-story S1
     # ---- the fall
     S['fall'] = t
     S['storm_def'] = storm_once(G)[0]
-    ks += f_
-    d3, s3 = vo('ss_ia3', "ANYA: Cut the power in the south compound. That opens the sewer into the airbase. Hack their server, take Kral's laptop, and find out what Hadi died for.", 'Anya')
+    S['nofall_burn'] = 0
+    if FIX1123B_NOFALL:                             # (fix1123b I1: no fall; the storm one-shot starts with the satellite pass, where the storm bed starts)
+        S['fall'] = S['sat0']
+        S['nofall_burn'] = len(f_) - S.get('sat_extra', 0)   # (one EditCamera id per key: the builder burns these ids after CS.add_intro, so no later id shifts)
+    else:
+        ks += f_
+    # (fix1122-story C7, owner: 'the first cutscene says go to Kral's laptop ... we don't know about it': the laptop is named and shown after the hack, in
+    #  the decrypt cutscene (build_sandstorm block A); IA3 = the new line's text (the old one in git: ss_ia3 with 'take Kral's laptop'))
+    IA3 = "ANYA: Cut the power in the south compound. That opens the sewer into the airbase. Hack their server, and find out what Hadi died for."         if os.environ.get('SS_FIX1122_STORY', '1') == '1' else "ANYA: Cut the power in the south compound. That opens the sewer into the airbase. Hack their server, take Kral's laptop, and find out what Hadi died for."
+    d3, s3 = vo('ss_ia3', IA3, 'Anya')
     d4, s4 = vo('ss_ia4', 'ANYA: The sandstorm is your only cover. Good luck, Jones.', 'Anya')
-    caps += [(round(t + 0.8, 2), 'SS_CF_1', "ANYA: Cut the power in the south compound. That opens the sewer into the airbase. Hack their server, take Kral's laptop, and find out what Hadi died for.", d3, s3 + 0.3),
-             (round(t + 0.8 + s3 + 0.5, 2), 'SS_CF_2', 'ANYA: The sandstorm is your only cover. Good luck, Jones.', d4, s4 + 0.3)]
+    if S['sat'] and FIX1123B_NOFALL:                # (fix1123b I1: her last line over the server building's satellite view, held, then play)
+        _ia3_end = S['sat0'] + 0.35 + 0.3 + s3 + 0.3
+        _c2 = max(_ia3_end + 0.4, t - 0.5)
+        _hold = _c2 + s4 + 1.2 - t
+        if _hold > 0:
+            _lk = ks[-1]                            # (the zoom's end pose, dur 0: it now holds, then a new end pose)
+            ks[-1] = dict(_lk, dur=_hold)
+            ks.append(dict(_lk, dur=0.0))
+            S['nofall_burn'] -= 1
+            t += _hold
+        caps += [(round(_c2, 2), 'SS_CF_2', 'ANYA: The sandstorm is your only cover. Good luck, Jones.', d4, s4 + 0.3)]
+        print('fix1123b I1: no fall over the ridge; the satellite view held %.1f s, "only cover" at %.1f s, intro ends at %.1f s' % (max(_hold, 0.0), _c2, t))
+    elif S['sat']:                                  # (fix1123 S1: ss_ia3 played over the satellite pass; the fall keeps 'only cover')
+        caps += [(round(t + 0.8, 2), 'SS_CF_2', 'ANYA: The sandstorm is your only cover. Good luck, Jones.', d4, s4 + 0.3)]
+    else:
+        caps += [(round(t + 0.8, 2), 'SS_CF_1', IA3, d3, s3 + 0.3),
+                 (round(t + 0.8 + s3 + 0.5, 2), 'SS_CF_2', 'ANYA: The sandstorm is your only cover. Good luck, Jones.', d4, s4 + 0.3)]
     assert 0.8 + s3 + 0.5 + s4 + 2.5 < FALL_S, ('the last seconds of the fall are for the wind and the ridge', s3, s4)
     print('intro2: room feed %.1f-%.1f s, shot at %.2f s, fall from %.1f s, total %.1f s' % (S['s1'] - d0, t, S['bang'], t, t + FALL_S))
     # (ss-judge A2/A3, orchestrator 11-14: the level beds are off in cutscenes and the intro was voices over dead air. The originals' recipe (L16 3950
@@ -272,9 +344,10 @@ def keys(G):
         at_.append((t_, k_)); t_ += k_['dur']
     end_ = t_ + 1.0
     S['amb'] = []
-    for nm_, def_, wins_, pad_, fo_ in (('SS intro HQ room tone', 'hqamb', ((0.0, S['room0']), (S['hq2'], S['fall'] + 0.7)), 6.0, 8.0),   # (+0.7 s: no dip while the storm fades in, rig kr4)
+    _s0 = S['sat0'] if S['sat'] else S['fall']      # (fix1123 S1: the HQ room tone ends on the satellite pass, the storm bed starts there)
+    for nm_, def_, wins_, pad_, fo_ in (('SS intro HQ room tone', 'hqamb', ((0.0, S['room0']), (S['hq2'], _s0 + 0.7)), 6.0, 8.0),   # (+0.7 s: no dip while the storm fades in, rig kr4)
                                          ('SS intro room feed hiss', 'noise_loop', ((S['room0'], S['hq2']),), 6.0, 8.0),
-                                         ('SS intro storm over the fall', 'sandstorm_wind', ((S['fall'], end_),), 40.0, 30.0)):
+                                         ('SS intro storm over the fall', 'sandstorm_wind', ((_s0, end_),), 40.0, 30.0)):
         pts_ = [k_['pos'] for t0_, k_ in at_ if any(a_ <= t0_ < b_ for a_, b_ in wins_)]
         lo_ = [min(p_[i_] for p_ in pts_) - pad_ * M for i_ in range(3)]; hi_ = [max(p_[i_] for p_ in pts_) + pad_ * M for i_ in range(3)]
         S['amb'].append((nm_, def_, wins_, [(l_ + h_) / 2 for l_, h_ in zip(lo_, hi_)], [(h_ - l_) / M for l_, h_ in zip(lo_, hi_)], fo_))

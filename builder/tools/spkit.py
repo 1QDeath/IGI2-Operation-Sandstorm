@@ -983,7 +983,7 @@ class Kit:
 
     def _vo_note(self, name, rec):
         """10-29: every voice line of this build -> work/shobi/voice/lines/<build>.json at exit (tools/voicescript.py reads
-        it for the Patch script: mission, def, speaker, text, radio or in person, length). A process that never reached
+        it for the Neonix script: mission, def, speaker, text, radio or in person, length). A process that never reached
         the end of K.write leaves <build>.partial.json instead (review 10-29: a crashed build must not feed the sheet)."""
         if not hasattr(self, 'VO_META'):
             self.VO_META = {}

@@ -465,6 +465,7 @@ def lightmapped_clone(rm):
 
 
 DIM_RIGID = {'205_36_1': 0.3, '205_35_1': 0.3, '337_11_1': 0.42}
+DIM_EXPLODE = {3897: 0.55, 3898: 0.55}                   # (fix1120 W3, owner 11-20 mark 10: the fuel tanks by the helicopter's east pad 'too bright for the place')
 
 
 def lit_here(K, o):
@@ -614,6 +615,11 @@ def indoorize(m, ovl, K, skip_models=(), log=print):
     for i in sorted(m.byid):                               # (these read bright against a dark room whatever their bake: lab trolleys, the yellow generator cabinets. Under a roof only)
         if m.typ(i) == 'EditRigidObj' and lit(m.byid[i].args[9]) in DIM_RIGID and lit_here(K, [float(lit(m.byid[i].args[k_])) / 4096.0 for k_ in (3, 4, 5)]):
             m.set(i, 9, dim(lit(m.byid[i].args[9]), DIM_RIGID[lit(m.byid[i].args[9])]))
+    for i, k_ in DIM_EXPLODE.items():                      # (fix1120 W3: the east pad's two fuel tanks, outdoors: same mesh, darkened texture; wreck model unchanged)
+        if i in m.byid and m.typ(i) == 'ExplodeObject' and lit(m.byid[i].args[9]) == '406_50_1':
+            m.set(i, 9, dim('406_50_1', k_))
+        else:
+            log('ssworld: fix1120 W3: tank %s not found as an ExplodeObject 406_50_1: left' % i)
     open(mr, 'wb').write(ilff.write(form, ch, hdr[1] or 4))
     if n_tex[0]:
         open(mt, 'wb').write(ilff.write(tform, tch, thdr[1] or 4))

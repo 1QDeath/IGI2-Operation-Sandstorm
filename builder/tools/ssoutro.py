@@ -692,10 +692,6 @@ def _dune_mesh(G):
     Z = Z + 1.6 * np.exp(-((X - 492.0) / 14.0) ** 2 - ((Y - 188.0) / 6.0) ** 2)   # (a low dune in the lower left of 'pull')
     Z = Z - 1.2 * (1.0 - smooth(392.0, 406.0, X))           # the west edge goes under the fine terrain
     rim = np.minimum.reduce([smooth(96.0, 110.0, Y), smooth(330.0, 316.0, Y), smooth(680.0, 666.0, X)])
-    if os.environ.get('SS_DUNE_RIM') == '1':
-        # (ss-look 11-17: the grid's last row is y 327, where smooth(330, 316) still leaves 0.12 of the dune: x 497-525 stood 0.05-0.12 m over
-        # the ground (a lit edge). That row now goes 1 m under the terrain like the other three borders; the rows south of it are unchanged)
-        rim[:, -1] = 0.0
     Z = Z * rim + (base - 1.0) * (1 - rim)
     Zx, Zy = np.gradient(Z, 7.0, 7.0)
     N_ = np.dstack([-Zx, -Zy, np.ones_like(Z)]); N_ /= np.linalg.norm(N_, axis=2, keepdims=True)
@@ -1156,6 +1152,44 @@ NOPE = ('stand_look_about', 'stand_rifle', 'stand_inspect_weapon_rifle', 'stand_
 TENSE = ['tense_look_forward', 'tense_look_left', 'tense_look_right', 'tense_look_forward_left', 'tense_look_backward_left', 'tense_look_backward_right', 'tense_reload_ak47', 'tense_ak47']
 
 
+# (fix1123b E1, owner 11-24 'the enemies in the ending ghost / lag (sliding, popping)': X3_TRANSITIONS 2.4, a NEW EditBoneObj never blends from the old one, so
+#  every phase of a man (one actor per phase) snapped to frame 0 of its first clip. ONE: each man is ONE actor for as long as he is seen: his phases become one
+#  non-looping animation list on one EditBoneObj (the Transition blends every clip change), every stand / hold is FITTED to whole clips (his later steps move
+#  with the fit, the next absolute hold takes the slack back), every leg lasts exactly its clips (whole cycles at the clip's foot speed). SS_ONE_ACTOR=0 = as f1123b_6
+ONE = os.environ.get('SS_ONE_ACTOR', '1') == '1'
+ONE_KEEP = ('his aide',)                                  # (fix1123b f1123b_8: the aide walks out in the wide shot and goes at the cut: per-phase timing, f1123b_7 lost him mid-room)
+ONE_CAP = 990                                              # (string args > 1023 chars are cut silently: a longer list starts a second actor there)
+
+
+def fit(main, pool, secs, first=None):
+    """clips whose lengths add up to secs as near as whole clips allow: `main` (a deck or a loop) up to ~ secs - one pool clip, then the best pool tail
+    (frames, nearest sum, fewer clips first). -> (clips, their seconds)"""
+    out = [first] if first else []
+    t_ = sum(_clip(c_) for c_ in out)
+    big = max(_clip(c_) for c_ in pool)
+    k_ = 0
+    while main and t_ + _clip(main[k_ % len(main)]) <= secs - big and len(out) < 40:
+        out.append(main[k_ % len(main)]); t_ += _clip(main[k_ % len(main)]); k_ += 1
+    rem = int(round((secs - t_) * 30.0))
+    fr = sorted({(int(round(_clip(c_) * 30.0)), c_) for c_ in pool})
+    best = {0: []}
+    frontier = [0]
+    lim = rem + max(f_ for f_, c_ in fr)
+    while frontier:
+        nxt = []
+        for v_ in frontier:
+            for f_, c_ in fr:
+                w_ = v_ + f_
+                if w_ <= lim and w_ not in best and len(best[v_]) < 12:
+                    best[w_] = best[v_] + [c_]; nxt.append(w_)
+        frontier = nxt
+    pick = min(best, key=lambda v_: (abs(v_ - rem), len(best[v_])))
+    if not out and pick == 0 and secs >= 0.2:            # (a short hold still shows him: one clip, the nearest)
+        pick = min((v_ for v_ in best if v_ > 0), key=lambda v_: (abs(v_ - rem), len(best[v_])))
+    out += best[pick]
+    return out, sum(_clip(c_) for c_ in out)
+
+
 def deck(seed, pool, secs, first=None):
     """clips for `secs`, shuffled by man, every clip of the pool before any comes round again (at most 30: the string is capped)"""
     r = random.Random(seed)
@@ -1185,6 +1219,7 @@ class Man:
         self.gun_expr = ''                                     # (WeaponModel Expression: 'HumanPlayer_GetPrimaryWeaponModel' = the player's own gun, gun = the fallback; originals L14/L16/L23/L25)
         self.track = []                                        # (outro second, point) of everything he walks, for check_paths
         self.gt = [(self.t, self.g)]                           # (outro second, facing) at every node he walks through, for check_sentry (owner 11-15 S8)
+        self.one = ONE and 'Jones' not in name and name not in ONE_KEEP   # (fix1123b E1: the enemies; Jones and the men timed to a camera cut keep their phases)
         S.men.append(self)
 
     def _lay(self):
@@ -1217,6 +1252,24 @@ class Man:
         """loop these clips until outro second `until`. Owner 88 'the same video over and over': a stand of over 2 s plays a shuffled deck of its kind, not a loop
         (shuffle=False: exactly these clips, e.g. a small calm set in the Hind cabin)"""
         self._flush()
+        if self.one:                                       # (fix1123b E1: no loop; whole clips fitted to the time, this man's clock moves with the fit)
+            if until <= self.t + 1e-6:
+                return self
+            if loop:
+                tense = loop[0] in TENSE
+                main = list(loop)
+                if shuffle and until - self.t >= 2.0 and loop[0] in CALM + TENSE:
+                    main = deck('%s %.1f' % (self.name, self.t), TENSE if tense else CALM, until - self.t, loop[0])
+                pool = sorted(set(loop) | (set(TENSE) if tense else {'stand'}))
+                clips, secs = fit(main, pool, until - self.t)
+                if secs > 0:
+                    self.ph.append((self.t, self.t + secs, clips, False))
+                    self.plan = getattr(self, 'plan', {}); self.plan[(round(self.t, 4), round(self.t + secs, 4))] = until   # (where he was meant to stop: a stretch that ends here ends there)
+                    self.t = self.cur_t = self.t + secs
+                    return self
+            self.ph.append((self.t, until, [], True))      # (no clips: not there for that time)
+            self.t = self.cur_t = until
+            return self
         assert until >= self.t - 1e-6, (self.name, until, self.t)
         if shuffle and until - self.t >= 2.0 and loop and loop[0] in CALM + TENSE:
             loop = deck('%s %.1f' % (self.name, self.t), TENSE if loop[0] in TENSE else CALM, until - self.t, loop[0])
@@ -1229,7 +1282,7 @@ class Man:
         A list that ends before `at` holds its last pose up to the cut (at most `early` s). (eb2a1 9.20-9.32: Jones' jump list ran 0.12 s past
         the cut to the crate, so the new lens saw him standing in the crate for 8 frames)"""
         self._lay()
-        assert self.t >= at - early, (self.name, 'list ends %.2f s before the cut' % (at - self.t))
+        assert self.one or self.t >= at - early, (self.name, 'list ends %.2f s before the cut' % (at - self.t))
         if self.cur:
             self.ph.append((self.cur_t, at, list(self.cur), False))
             self.cur = []
@@ -1249,6 +1302,8 @@ class Man:
     def go(self, pts, secs, *clips, face=None):
         """a leg over pts (world m) in secs, playing clips in that time"""
         pts = [tuple(float(c_) for c_ in q) for q in pts]
+        if self.one and clips:                             # (fix1123b E1: the leg lasts exactly its clips, so the list and the carrier stay in step)
+            secs = sum(_clip(c_) for c_ in clips)
         if self.leg is None:
             self.leg = [self.t, [self.p], [self.g], [0.0]]
             self.track.append((self.t, self.p))
@@ -1275,7 +1330,20 @@ class Man:
     def run(self, pts, speed=4.8, clip=RUN, face=None):
         d = sum(math.dist(a_, b_) for a_, b_ in zip([self.p] + pts[:-1], pts))
         L = _clip(clip)
+        if self.one:                                       # (fix1123b E1: whole cycles at the clip's own foot speed; a tiny step is a shuffle turn)
+            fs1 = FOOT1123.get(clip) or speed
+            if d < 0.45 * fs1 * L:
+                return self.go(pts, 0.0, 'stand_turn_mp_shuffle', face=face)
+            n = max(1, int(round(d / (fs1 * L))))
+            return self.go(pts, n * L, *([clip] * n), face=face)
         n = max(1, int(round(d / (speed * L))))
+        fs_ = FOOT1123.get(clip)
+        if FIX1123_RUN and fs_ and 0.8 * fs_ <= speed <= 1.25 * fs_ and d / (speed * L) < 0.88:   # (only legs meant at the clip's own pace: Jones' slow walk up to the crate etc. keep theirs)
+            # (fix1123-story S8, owner film 3:38 'they walk, then they start SLIDING'): whole cycles only made a short leg slow (0.64 m in one 1 s walk
+            #  cycle = 0.6 m/s on feet that move 1.15) or a leg of 1.4 cycles 40 % fast. The leg now takes d / speed (the feet's own speed) and plays
+            #  enough cycles to cover it; the phase ends with the leg (the last cycle is cut there, as every leg end already cuts its list)
+            #  (review e004237: only legs shorter than one cycle; a multi-cycle leg keeps whole cycles, else chained legs drift out of step with their clips)
+            return self.go(pts, max(d / fs_, 0.3), clip, face=face)
         return self.go(pts, n * L, *([clip] * n), face=face)
 
     def walk(self, pts, speed=1.65, clip='stand_walk_forward', face=None):
@@ -1283,7 +1351,7 @@ class Man:
 
     def stroll(self, pts, face=None):
         """owner 11-15 S20: the relaxed walk, rifle down (the engine's own patrol walk for a rifle; stand_walk_forward holds it up at the ready)"""
-        return self.run(pts, 1.35, 'civilian_walk_rifle', face)
+        return self.run(pts, 1.2 if FIX_RUN else 1.35, 'civilian_walk_rifle', face)   # (fix1122 C2: its feet move 1.15 m/s)
 
     def mill(self, end, moves=3, stand=('stand',)):
         """a man with nothing left to do does not stand on one spot: a few steps round where he is, then stands again, until `end`
@@ -1304,6 +1372,8 @@ class Man:
         self._flush()
         kids, self.vis = [], []                                # (vis: what the engine shows of him, for check_cuts)
         ph = [q for q in self.ph if q[1] - q[0] > 0.0]
+        if self.one:
+            return self._finish_one(end, ph)
         for k_, (a_, b_, clips, loop) in enumerate(ph):
             if not clips:                                      # (a hold with no clips: not there for that time)
                 continue
@@ -1315,6 +1385,47 @@ class Man:
             self.vis.append((a_, b2, clips[0]))
             kids.append(T(S.nid(), 'ConditionalContainer', 'SS %s %d' % (self.name, k_), '%s && !(%s)%s' % (S.tick(a_), S.tick(b2), ' && ' + self.cond if self.cond else ''), '', '', children=[
                 T(S.nid(), 'EditBoneObj', 'SS %s' % self.name, *[c_ * M for c_ in self.p0], 0.0, 0.0, self.g0, bool(loop), True, self.skin, True, self.gun, self.gun_expr, s_, self.tf if loop else 1.0, BLEND)]))
+        key = round(self.t0, 2)
+        if key not in S.appear:
+            S.appear[key] = S.nid()
+            S.m.add_child(S.LOGIC, T(S.appear[key], 'ConditionalContainer', 'SS men at %.1f' % key, S.tick(self.t0 - 0.05), '', ''))
+        S.m.add_child(S.appear[key], T(self.rig, 'EditRigidObj', 'SS %s carrier' % self.name, *[c_ * M for c_ in self.p0], 0.0, 0.0, self.g0, 'lot', 5, False, False, children=kids))
+
+
+    def _finish_one(self, end, ph):
+        """fix1123b E1: consecutive phases with clips = ONE actor (one EditBoneObj, one non-looping list) from his first seen second to his last"""
+        S = self.S
+        chunks, cur = [], None
+        plan = getattr(self, 'plan', {})
+        for a_, b_, clips, loop in ph:
+            if not clips:
+                cur = None
+                continue
+            if cur is not None and abs(cur[1] - a_) < 1e-3 and len(', '.join(cur[2] + clips)) < ONE_CAP:
+                cur[1] = b_; cur[2] += clips; cur[3] = plan.get((round(a_, 4), round(b_, 4)), b_)
+            else:
+                cur = [a_, b_, list(clips), plan.get((round(a_, 4), round(b_, 4)), b_)]; chunks.append(cur)
+        for i_, c_ in enumerate(chunks):                   # (a stretch ends where his hold was meant to end (a cut, a hand-over to the riders), not where its fitted clips end:
+            if abs(c_[3] - c_[1]) > 1e-3:                  #  the actor is taken off then; a list that ends early gets one more clip of the same kind)
+                if c_[0] + sum(_clip(x_) for x_ in c_[2]) < c_[3]:
+                    c_[2].append(c_[2][-1])
+                c_[1] = min(c_[3], chunks[i_ + 1][0]) if i_ + 1 < len(chunks) else c_[3]
+        if chunks and ph and ph[-1][2] and chunks[-1][1] >= ph[-1][1] - 1e-3:   # (his last list runs to the end of the scene: cycle its last phase's clips)
+            last = ph[-1][2]
+            k_ = 0
+            while chunks[-1][0] + sum(_clip(c_) for c_ in chunks[-1][2]) < end and len(', '.join(chunks[-1][2] + [last[k_ % len(last)]])) < ONE_CAP:
+                chunks[-1][2].append(last[k_ % len(last)]); k_ += 1
+            chunks[-1][1] = max(end, chunks[-1][1])
+        kids = []
+        for k_, (a_, b_, clips, _pl) in enumerate(chunks):
+            s_ = ', '.join(clips)
+            self.vis.append((a_, b_, clips[0]))
+            kids.append(T(S.nid(), 'ConditionalContainer', 'SS %s %d' % (self.name, k_), '%s && !(%s)%s' % (S.tick(a_), S.tick(b_), ' && ' + self.cond if self.cond else ''), '', '', children=[
+                T(S.nid(), 'EditBoneObj', 'SS %s' % self.name, *[c_ * M for c_ in self.p0], 0.0, 0.0, self.g0, False, True, self.skin, True, self.gun, self.gun_expr, s_, 1.0, BLEND)]))
+        for _ in range(2 * (sum(1 for q in ph if q[2]) - len(kids))):   # (the ids the per-phase actors took: burned, so later task ids do not shift)
+            S.nid()
+        S.one_actors = getattr(S, 'one_actors', 0) + len(kids)
+        S.one_phases = getattr(S, 'one_phases', 0) + sum(1 for q in ph if q[2])
         key = round(self.t0, 2)
         if key not in S.appear:
             S.appear[key] = S.nid()
@@ -1385,6 +1496,8 @@ def check_cuts(S, short=0.3, win=0.3, far=120.0):
         for a_, b_, cl, lp in mn.ph:
             for c0 in cl:
                 used[c0] = min(used.get(c0, a_), a_)
+    for c0, t0 in getattr(S, 'preloaded', {}).items():      # (fix1123-story S4: a clip played earlier by a hidden preload actor is loaded)
+        used[c0] = min(used.get(c0, t0), t0)
     for mn in S.men:
         iv = []
         for a_, b_, c0 in sorted(getattr(mn, 'vis', [])):
@@ -1546,6 +1659,17 @@ WAITS = ['stand', 'stand_wipe_nose', 'stand_streatch_neck', 'stand_clean_weapon'
 #  Every man now drops with running_jump_land (hip 0.89-0.94 m, gun in hand) and runs on upright; variety = his run clip, pace and spacing)
 EXITS = [(RUN, 0.42, 'running_jump_land', 0.46), ('stand_run_fwd_full_ak47', 0.45, 'running_jump_land', 0.46)]
 RUNS = [(RUN, 4.8), ('stand_run_fwd_full_ak47', 5.1), ('stand_run_fwd_full_m16', 4.6)]
+# (fix1122-story C2, owner pics 26 28 39-41: 'they SLIDE instead of walking'). Measured 11-22 on alarm1_1 with tools/cutanim.py (foot speed in
+#  the stance phase, engine seconds = file x 4096/4800): stand_run_forward 2.7 m/s, stand_run_fwd_full_ak47 / _m16 2.9, stand_walk_forward 1.65-1.8,
+#  civilian_walk_rifle 1.15. The men ran the run clips at 4.6-5.1 m/s and boarded at 3.6: the ground went by 1.3-1.8 x faster than their feet.
+#  Now every run of the Hind men is at its clip's own speed (+5 %), the relaxed walk at 1.2 m/s. SS_FIX1122_RUN=0 = the old speeds
+FIX_RUN = os.environ.get('SS_FIX1122_RUN', '1') == '1'
+FIX1123_RUN = os.environ.get('SS_FIX1123_RUN', '1') == '1'   # (fix1123-story S8: every leg at its clip's foot speed, see Man.run)
+FIX1123 = os.environ.get('SS_FIX1123_STORY', '1') == '1'     # (fix1123-story S3 S4)
+FOOT1123 = {'stand_run_forward': 2.85, 'stand_run_fwd_full_ak47': 3.0, 'stand_run_fwd_full_m16': 3.0, 'civilian_walk_rifle': 1.15, 'stand_walk_forward': 1.7}   # (m/s, fix1122 C2's tools/cutanim.py measurements)
+FOOT = {RUN: 2.85, 'stand_run_fwd_full_ak47': 3.0, 'stand_run_fwd_full_m16': 3.0}
+if FIX_RUN:
+    RUNS = [(c_, FOOT[c_]) for c_, s_ in RUNS]
 
 
 def _out(S, name, lz, k, t_appear, t_exit, skin):
@@ -1580,7 +1704,8 @@ def _men(S, G):
     #  every other man stands easy doing his own small thing, no two neighbours on one clip, nobody aims)
     pair = {0: 1, 1: 0, 3: 5, 5: 3}
     own = {2: ['stand'], 4: ['stand_clean_weapon'], 6: ['stand_streatch_neck', 'stand'], 7: ['stand_wipe_nose', 'stand'], 8: ['stand_bugged_by_fly', 'stand'], 9: ['stand']}
-    gap = lambda tag_, n_: [0.0] + list(np.cumsum([random.Random('%s gap %d' % (tag_, i_)).uniform(0.42, 0.82) for i_ in range(n_ - 1)]))   # (owner 11-12: not one even stream)
+    gap = lambda tag_, n_: [0.0] + list(np.cumsum([random.Random('%s gap %d' % (tag_, i_)).uniform(0.42, 0.82) + (0.35 if FIX_RUN and tag_ == 'A' else 0.0) for i_ in range(n_ - 1)]))   # (owner 11-12: not one even stream)
+    # (fix1122 C2, owner pics 26 28 'they walk through each other' at the stairs: A's ten men 0.35 s further apart, so one flight of the stair never holds two)
     ga = gap('A', 10)
     east = [k_ for k_ in range(10) if wait[k_][0] >= STAIR_X0 + 0.7 + (k_ % 3) * 1.2]
     for k_ in range(10):
@@ -1602,7 +1727,7 @@ def _men(S, G):
         #  the treads, and the diagonal to the lane left the flight over the drop. Now: the foot of the flight, the top tread (both on the pitch line), straight onto the
         #  platform, then the lane: 0-0.26 m over a tread, never off the stair's sides)
         mn.run([S.on(sx, PY1 + STAIR_RUN - 0.05), S.on(sx, PY1 + 0.1)], speed=3.0)   # (eb4, ENDING_review_2 32.0-32.3: at 4.8 m/s the flight took one run cycle, 9 treads in
-        mn.run([S.on(sx, PY1 - 0.35), S.on(wx + (1.0 if wx < sx else -1.0), lane), S.on(wx, wy)], face=fc)   #  two strides = a leap; at 3 two cycles, two treads a stride)
+        mn.run([S.on(sx, PY1 - 0.35), S.on(wx + (1.0 if wx < sx else -1.0), lane), S.on(wx, wy)], speed=FOOT[RUN] if FIX_RUN else 4.8, face=fc)   #  two strides = a leap; at 3 two cycles, two treads a stride)
         S.boarders.append(mn)
     # --- B: out of the south Hind to the line; men look under the cars; two get on the freight van
     Tb, Eb = S.land['B'] + 0.4, S.door_t['B'] + 0.6
@@ -1658,9 +1783,8 @@ def _men(S, G):
     # (S20 batch 1b: the bend - look round - bend loop at the crate was the owner's 'crouch, look right and left' again. He now stands at the opened crate,
     #  0.45 m from its slats, looking into it ('Nothing here' at jones + 0.2), until the sergeant's shout; then he turns and walks out along the aisle with the
     #  relaxed walk (rifle down, as in 'stand'). The old 0.5 s spin to the north on stand_walk_forward -> stand_rifle snapped 90 deg at slat2 + 2.4, review S10_a_085-086)
-    s1.fill(TT['slat2'] + 3.1, 'stand')                          # (one actor from the cut into 'search' to the cut into GEN: no new actor in the van shots, X3_TRANSITIONS.md.
-    assert abs(s1.t - (TT['slat2'] + 3.1)) < 0.3, ('s1 leaves the crate on the answer', round(s1.t - TT['slat2'], 3))   #  eb6, ENDING_review_3 51.43: 'stand' only, 3 x 2.9 s from 43.4:
-    #  stand_streatch_neck -> civilian_walk_rifle turned him in ONE frame (fillers 55.5 deg pelvis yaw, the Transition does not carry the root); he now walks out on 'Yes, sir.' at 52.05)
+    s1.fill(TT['slat2'] + 2.1, 'stand', 'stand', 'stand_streatch_neck')   # (one actor from the cut into 'search' to the cut into GEN: no new actor in the van shots,
+    assert abs(s1.t - (TT['slat2'] + 2.1)) < 0.3, ('s1 leaves the crate on the call', round(s1.t - TT['slat2'], 3))   #  X3_TRANSITIONS.md; 2.9 + 2.9 + 1.97 s from 43.4)
     s1.stroll([C_(F, 0.2, 0.9, 0.0), C_(F, 1.0, 0.1, 0.0)], face=-math.pi / 2)
     s1.fill(TT['GEN'] + 0.2, 'stand')
     s1.hold(TT['vand'] + 1.1, 'stand', shuffle=False)
@@ -1754,10 +1878,19 @@ def _jones(S, G):
     mn.go([C_(F, -0.82, 2.3, 0.05)], 0.03, 'stand')          # (the hard cut hides the hop; he ends up facing east, the lens looks at him from there)
     mn.cut_at(TT['drop'])                                    # (eb2a1: the list ran to 9.32, the crate lens saw him for 8 frames after the 9.20 cut; now he is gone on the cut)
     mn.hold(TT['ridge'])                                   # (not there for the lid shot: the tip of his rifle stood over the rim, hf4 a12)
-    mn.hold(TT['ridge'] + 0.6)                             # (eb4, ENDING_review_2 fault 2: on the cut into 'jones' the crate was empty for 0.1 s, then he popped in at 46.77 -
-    mn.hold(TT['over'] - 0.6, 'jones_hiding')              #  the first use of jones_hiding loads late. eb6, ENDING_review_3 46.30: the 0.3 s lead-in under the 'search' lens showed his
-    mn.hold(TT['jones'])                                   #  hand through the crate's slat gap. Now the clip's first use is here, in the shut crate while every lens is on the Hinds
-    mn.hold(TT['slat2'], 'jones_hiding')                   #  (ridge: the van is behind that lens), and he comes ON the cut into 'jones' like the 'last' shot always did)
+    if FIX1123:                                              # (fix1123-story S4, owner V2 V3: in the 'search' shot Jones and his rifle showed through the crate's slat gap and over its rim:
+        #  those were the 0.3 s he was in before the cut. He now enters ON the cut; the late load of jones_hiding is taken by a preload copy of him 3 m under the
+        #  van's floor from the 'crate' shot on (nobody sees it), so the clip is in memory when he appears)
+        mn.hold(TT['jones'])
+        _pz = C_(F, -0.82, 2.3, 0.05)
+        S.preloaded = dict(getattr(S, 'preloaded', {}), jones_hiding=TT['crate'])
+        _pc = S.nid()
+        S.m.add_child(S.LOGIC, T(_pc, 'ConditionalContainer', 'SS jones_hiding preload (under the van)', '%s && !(%s)' % (S.at(TT['crate']), S.at(TT['jones'] + 0.5)), '', '',
+                                 children=[T(S.nid(), 'EditBoneObj', 'SS outro Jones preload', _pz[0] * M, _pz[1] * M, (_pz[2] - 3.0) * M, 0.0, 0.0, 0.0, True, True, 'jones2_1', True,
+                                             '110_01_1', '', 'jones_hiding', 1.0, BLEND)]))   # (his rifle as in the clip: guncheck AIR)
+    else:
+        mn.hold(TT['jones'] - 0.3)                         # (eb4, ENDING_review_2 fault 2: on the cut into 'jones' the crate was empty for 0.1 s, then he popped in at 46.77 -
+    mn.hold(TT['slat2'], 'jones_hiding')                   #  the first use of jones_hiding loads late. He is in the crate 0.3 s before the cut, under the 'search' lens's rim)
     mn.hold(TT['last'])
     mn.hold(TT['cab'], 'jones_hiding')                     # (only the lens in the crate sees him here; seen from its old corner the hiding clip was a bent, cut-off body (c1b), kneeling a headless chest (c2c))
     mn.hold(TT['pull'])
@@ -1871,28 +2004,39 @@ def _train(S, G):
     arrive = {DOOR_Y: Bx + 0.9, -DOOR_Y: Bx + 0.9}
     C_d = lambda ys: C_(K_COACH, -2.3, ys, 0.0)
     order = sorted(S.boarders, key=lambda mn: min(math.dist(mn.p[:2], C_d(ys)[:2]) for ys in (DOOR_Y, -DOOR_Y)))
+
+    def _plan(bsp_, bgap_):                                  # (fix1122 C2: the boarding below, dry: does every man reach his door before it shuts?)
+        arr_, sq_ = dict(arrive), {k_: list(v_) for k_, v_ in seq.items()}
+        for mn_ in order:
+            ys_ = min((DOOR_Y, -DOOR_Y), key=lambda y_: math.dist(mn_.p[:2], C_d(y_)[:2]) + 40.0 * (not sq_[y_]))
+            sq_[ys_].pop(0)
+            ld_ = math.dist(mn_.p[:2], C_d(ys_)[:2]) / bsp_
+            g_ = max(arr_[ys_] - ld_, mn_.t + 0.2)
+            arr_[ys_] = g_ + ld_ + bgap_
+            if g_ + ld_ >= TT['window'] + 2.3 - 0.2:
+                return False
+        return True
+    BSP, BGAP = 3.6, S.board_gap                             # (fix1122 C2: board at the run clip's own speed, 1.8 s apart in the aisle (pics 40 41: three men in one
+    if FIX_RUN:                                              #  lump), faster / closer only when the coach door would shut on a man)
+        BSP, BGAP = next(((a_, b_) for a_, b_ in ((FOOT[RUN], 1.8), (FOOT[RUN], S.board_gap), (3.2, S.board_gap)) if _plan(a_, b_)), (3.6, S.board_gap))
+    print('ssoutro: boarding at %.2f m/s, %.2f s apart' % (BSP, BGAP))
     for n_, mn in enumerate(order):
         ys = min((DOOR_Y, -DOOR_Y), key=lambda y_: math.dist(mn.p[:2], C_d(y_)[:2]) + 40.0 * (not seq[y_]))
         q_ = seq[ys].pop(0)
         xs, ysd, fc = q_[:3]
         car_ = q_[3] if len(q_) > 3 else K_COACH
         dp = C_d(ys)
-        lead = math.dist(mn.p[:2], dp[:2]) / 3.6
+        bsp, bgap = BSP, BGAP
+        lead = math.dist(mn.p[:2], dp[:2]) / bsp
         go = max(arrive[ys] - lead, mn.t + 0.2)
-        arrive[ys] = go + lead + S.board_gap
+        arrive[ys] = go + lead + bgap
         assert go + lead < TT['window'] + 2.3, (mn.name, go + lead)   # (the coach door shuts at window + 2.6: nobody runs through the leaf)
         mn.hold(go, *getattr(mn, 'wait_idle', idle[n_ % len(idle)]))
         s_ = 1 if ys > 0 else -1
         tail = [C_(K_COACH, 0.0, ysd, 0.0)] if car_ == K_COACH else [C_(K_COACH, 0.0, s_ * (ST.LENGTH[COACHD] / 2 - 0.2), 0.0), C_(car_, 0.0, ysd, 0.0)]
         L0 = max(math.dist(mn.p[:2], dp[:2]), 0.6)          # (batch 1b, review S20_a_010-014 / DIAG_batch1b.md 1: the leg turned him from his wait facing to the door over 2.35 s,
         fst = S.on(mn.p[0] + (dp[0] - mn.p[0]) * 0.5 / L0, mn.p[1] + (dp[1] - mn.p[1]) * 0.5 / L0)   #  a crab run with the lens on his back and the rifle hidden: a node 0.5 m on turns him at once)
-        allp = [fst, dp, C_(K_COACH, -0.9, ys, 0.0), C_(K_COACH, 0.0, ys - 0.6 * s_, 0.0)] + tail
-        D_ = [math.dist(a_, b_) for a_, b_ in zip([mn.p] + allp[:-1], allp)]
-        t_in = mn.t + max(1, int(round(sum(D_) / (3.6 * _clip(RUN))))) * _clip(RUN) * sum(D_[:3]) / max(sum(D_), 1e-6)
-        if t_in >= TT['window'] - 0.3:                       # (eb6, ENDING_review_3 115.2-115.4: the last man in through the east door ran the aisle in the window lens and the
-            mn.run(allp[:3], speed=3.6).stroll(allp[3:])     #  run -> stroll blend held his rifle up by his face past the first window. A man who comes in during 'window' strolls
-        else:                                                #  from just inside the door: the switch is in the doorway, his back to the lens; the door still shuts behind him)
-            mn.run(allp, speed=3.6)
+        mn.run([fst, dp, C_(K_COACH, -0.9, ys, 0.0), C_(K_COACH, 0.0, ys - 0.6 * s_, 0.0)] + tail, speed=bsp)
         sg = 1.0 if xs > 0 else -1.0                         # (the truck-seat clips throw the body metres off their root and out through the wall: a troop train, they stand by the windows)
         here = idle[(n_ + 1) % len(idle)]
         mn.stroll([C_(car_, sg * 0.4, ysd - 0.5 * sg, 0.0)], face=0.0 if xs < 0 else math.pi)   # (eb4, ENDING_review_2 115.3: stand_walk_forward walked the aisle rifle at the shoulder)
@@ -1961,7 +2105,11 @@ def _crew(S, G):
         mn.hold(S.land[lk[0]] - 2.5 + 1.3 * k_, *[c_.strip() for c_ in a_.split(',')])   # (judge Q06: staggered, 1.3 s apart)
         if k_ == 0:                                          # (judge Q06: two identical statues aiming side by side for 10 s: one walks a few steps towards the platform and watches,
             mn.tf = 0.92                                     #  the other stands easy and looks about, at his own pace. Owner 11-15 S20: nobody aims - no tense / alert clips)
-            mn.stroll([S.on(pw[0][0] + 2.2 * aw[1], pw[0][1] - 2.2 * aw[0])], face=math.atan2(-aw[0], aw[1]) + math.pi)
+            if FIX1123:                                      # (fix1123-story S3, owner film 2:19 'two soldiers inside each other': the 2.2 m sidestep (aw turned right) ended
+                ow_ = np.array(pw[0]) - np.array(pw[1]); ow_ = ow_ / max(np.linalg.norm(ow_), 1e-3)   #  exactly on unloader 1's spot, pw[1] is pw[0] + 2.2 m
+                mn.stroll([S.on(pw[0][0] + 1.8 * ow_[0], pw[0][1] + 1.8 * ow_[1])], face=math.atan2(-aw[0], aw[1]) + math.pi)   #  the same way; now 1.8 m AWAY from him)
+            else:
+                mn.stroll([S.on(pw[0][0] + 2.2 * aw[1], pw[0][1] - 2.2 * aw[0])], face=math.atan2(-aw[0], aw[1]) + math.pi)
             mn.hold(S.total + 2.0, 'stand', 'stand_streatch_neck', 'stand', 'stand_wipe_nose', shuffle=False)
         else:
             mn.tf = 1.08

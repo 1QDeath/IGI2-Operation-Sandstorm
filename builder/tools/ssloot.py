@@ -42,7 +42,8 @@ NOTES = [('duty roster', 'h1', 0.6, 1.95, 0.46 + 0.01, 0.3,
          ('delivery note', 's5', -0.95, 0.1, 0.64 + 0.01, 1.2,    # (S7 11-15: 1.28 is the double stack at (-1.15, -2.7); under the note is a single pallet, top 0.63: it floated 0.65 m)
           "DELIVERY NOTE: one crate of hand grenades, signed for at the vehicle garage. Not yet collected.")]
 KEY_LINE = "ARMOURY KEY. It opens the south armoury beside the west generator."
-LOCK_LINE = "Locked. The duty sergeant keeps the armoury key, in the rest hut by the east generator."
+LOCK_LINE = "Locked. Pick the lock (hold E), or take the armoury key from the duty sergeant's rest hut by the east generator."   # (fix1120 L1)
+PICK_S = 6.0                                               # (fix1120 L1, owner pic 1: "it says locked, there is nowhere you could get a key": the leaves also give to a 6 s lock pick, as the mission's other locked doors)
 
 
 def _shed_x(b, x):
@@ -175,12 +176,13 @@ def apply(G):
         m.add_child(4029, T(a_, 'AreaActivate', 'SS loot: at the armoury door %d' % k_, hx * M, hy * M, (0.31 + 1.0) * M, 0.0, 0.0, 0.0,
                                   2.6 * M, 2.6 * M, 2.6 * M, 'CRITERIA_HUMAN0'))
         areas.append(a_)
-    msg('SS_LOOT_LOCK', 'SS loot: armoury locked', '%s == 0 && (%s)' % (got, ' || '.join('AreaActivate_%d.nActive == 1' % a_ for a_ in areas)), LOCK_LINE, 6.0)   # (one line for both doors: one task id, redo 11-13 id budget)
+    picked = ' || '.join('Door_%d.isPicked' % d_ for d_ in doors)   # (fix1120 L1)
+    msg('SS_LOOT_LOCK', 'SS loot: armoury locked', '%s == 0 && !(%s) && (%s)' % (got, picked, ' || '.join('AreaActivate_%d.nActive == 1' % a_ for a_ in areas)), LOCK_LINE, 6.0)   # (one line for both doors: one task id, redo 11-13 id budget)
     # the lock (as the originals' scripted doors, L11-L36: lock argument the literal "1", opened only through the open expression):
     # Jones with the key at either door -> all four leaves open. An expression in the lock argument locks nothing (rig 11-13)
     opened = '%s == 1 && (%s)' % (got, ' || '.join('AreaActivate_%d.nActive == 1' % a_ for a_ in areas))
     for d_ in doors:
-        m.set(d_, 18, '1'); m.set(d_, 19, opened); m.set(d_, 20, '0')   # (close rule '0': once open they stay open, Jones is never shut inside; as build_sandstorm rig wb15)
+        m.set(d_, 15, True); m.set(d_, 17, PICK_S); m.set(d_, 18, '1'); m.set(d_, 19, opened); m.set(d_, 20, '0')   # (fix1120 L1: pickable with the literal '1' lock, as garrison door 1834; the open rule = the key, as before)   # (close rule '0': once open they stay open, Jones is never shut inside; as build_sandstorm rig wb15)
     cut_graph(G)
     # the reward on the armoury bench: ss-world's loose AK on that bench goes (orchestrator 11-13: the reward must be what Jones takes there)
     for i_ in [i_ for i_ in m.byid if str(lit(m.byid[i_].args[1])) == 'GunPickup' and str(lit(m.byid[i_].args[2])) == 'SS armoury bench rifle']:

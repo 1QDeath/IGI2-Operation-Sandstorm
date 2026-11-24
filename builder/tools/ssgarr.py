@@ -660,7 +660,7 @@ def alert(g):
     keep = {sid for k, (sid, h) in SQ.items() if k.startswith('U ') and h and k not in ('U machine room', 'U tunnel post', 'U tunnel rockets', 'U scientists')}
     excl = [sid for sid in m.find('AISquad') if sid not in keep]
     hold = [SQ[k][0] for k, v in POSTS.items() if v[1]]
-    H.build(exclude=excl, only_alarmed=False, open_vars=[U], cry_alarm=False, hold=hold, loud_alarm=True, fight_gate=g.get('COVERAI', False), dead_hold=g.get('DEADHOLD', False))   # (N8 ss-life 11-15; N15 11-17)
+    H.build(exclude=excl, only_alarmed=False, open_vars=[U], cry_alarm=False, hold=hold, loud_alarm=True, fight_gate=g.get('COVERAI', False))   # (N8 ss-life 11-15)
     D = g['DBG'] if 'DBG' in g else ''
     if 'g2surf' in D:                                      # (test: a blast by a surface squad at 25 s, far from Jones: their own alarm)
         h = SQ['S generator A yard'][1][0]

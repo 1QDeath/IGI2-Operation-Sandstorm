@@ -373,8 +373,7 @@ class Hunt:
         return out
 
     # ---- build everything
-    def build(s, exclude=(), only_alarmed=True, open_vars=(), gf='GAME_FREQUENCY', cry_alarm=True, hold=(), loud_alarm=False, react_fight=(), fight_gate=False, engage='HoldArea',
-              death_cover=None, dead_hold=False):
+    def build(s, exclude=(), only_alarmed=True, open_vars=(), gf='GAME_FREQUENCY', cry_alarm=True, hold=(), loud_alarm=False, react_fight=(), fight_gate=False, engage='HoldArea'):
         """squads = every Offensive AISquad with an AlarmControl (only_alarmed) on a real graph, minus `exclude`.
         open_vars: EditVariable ids whose doors open with the alarm (their door nodes count as passable)
         cry_alarm=False (Cedar 10-31, owner 'kill one and 100 come'): a DEATH_CRY only sends the squad to search, no man-down
@@ -382,16 +381,7 @@ class Hunt:
         hold: squad ids that keep their alarm button + body / backup reactions but do NOT join the hunt (on the alarm they
         take cover at their post, the engine default - Cedar 10-31: only the response squads come)
         loud_alarm (Sandstorm 11-06, owner 64): a squad that hears a shot or a blast, is hit, or sees a body or a friend dying raises the alarm in ANY state until the alarm is on;
-        the old branches only took a body in Idle / Move / Patrol, so a squad already searching or in Danger never reported, and nothing loud ever did
-        death_cover (N8 first cut, ss-life 11-17; None = follow fight_gate): a squad in Idle / Move / Patrol that sees or hears a friend die goes to DANGER (the engine's
-        own cover: every man takes the nearest free cover within 10 m from the danger, kneels or sweeps; Danger's timeout then moves them: hunt, or the default's
-        MoveSearchInDirection) instead of SearchArea (a walk in the open). That is the originals' answer, COMMON squaddefault Offensive SD:26-30
-        dead_hold (N15 ss-life 11-17, default off): once Jones is dead every hunting squad holds its area (HoldArea, the state fight_gate / engage uses) on its next
-        event and gets no further order. Without it the hunt zone that holds his body stays active, so squads keep being sent to its two nodes every phase_s and
-        walk to and fro across the body under the death camera (ss_full2 9:20, ss_full3 10:44). No task id; the reader HumanPlayer_0.isDead is new in a squad
-        script (no original ai script reads HumanPlayer; objects.qvm conditions do): prove it in an A/B take before it ships"""
-        death_cover = fight_gate if death_cover is None else death_cover
-        grief = ST('Danger') if death_cover else ST('SearchArea')
+        the old branches only took a body in Idle / Move / Patrol, so a squad already searching or in Danger never reported, and nothing loud ever did"""
         from mission_lib import T
         from qast import lit
         M = s.M
@@ -494,7 +484,7 @@ class Hunt:
                           hunt, [C('AISquad_DefaultHandler')])]
             if not cry_alarm:                               # (a death cry: the squad searches, nobody runs to the button)
                 cry_branch = [If(AND(EQ(SQ_E, EV('DEATH_CRY')), _in(SQ_S, ST('Idle'), ST('Move'), ST('Patrol'))),
-                                 [C('AISquad_SwitchState', grief, 'AIVoice_TakeCover' if death_cover else 'AIVoice_SearchArea')], cry_branch)]
+                                 [C('AISquad_SwitchState', ST('SearchArea'), 'AIVoice_SearchArea')], cry_branch)]
             script = [If(_in(SQ_E, EV('BACKUP_REQUEST'), EV('DESTROYED_CAMERA')),
                          [If(AND(_in(SQ_S, ST('Idle'), ST('Move'), ST('Patrol'), ST('Danger')), Not(C('AISquad_ReceiverHasTarget'))),
                              [C('AISquad_PlaySoundAtReceiversPos', 'AIVoice_HurryUp'),
@@ -503,7 +493,7 @@ class Hunt:
                                  _in(SQ_S, ST('Idle'), ST('Move'), ST('Patrol'))),
                              [C('AISquad_PlaySoundAtReceiversPos', 'AIVoice_ManDown'),
                               C('AISquad_TriggerEvent', EV('DISTRESSCALL'), int(s.distress)),
-                              C('AISquad_SwitchState', grief), C('AISquad_TriggerAlarm')],
+                              C('AISquad_SwitchState', ST('SearchArea')), C('AISquad_TriggerAlarm')],
                              cry_branch)])]
             if q['sid'] in react_fight:                     # (S16 ss-life 11-15 'he kills one and the others do not react': men who came for Jones do not 'search the area'
                 script = [If(AND(_in(SQ_E, *[EV(e_) for e_ in ('FRIENDLY_DYING', 'DEATH_CRY', 'FRIENDLYDETECTION', 'TAKINGDAMAGE', 'GUNSHOT', 'GUNSHOTMISS')]),   #  after a death:
@@ -520,8 +510,6 @@ class Hunt:
                              [C('AISquad_PlaySoundAtReceiversPos', 'AIVoice_RaiseAlarm'), C('AISquad_TriggerEvent', EV('DISTRESSCALL'), int(s.distress)), C('AISquad_TriggerAlarm')]),
                           If(AND(Not(ALARM), _in(SQ_E, *[EV(e_) for e_ in ('EXPLOSION', 'GUNSHOT', 'GUNSHOTMISS', 'FRIENDLY_GUNSHOT', 'TAKINGDAMAGE', 'GRENADELAND')])),
                              ([C('AISquad_TriggerEvent', EV('DISTRESSCALL'), int(s.distress))] if os.environ.get('SS_SHOTCALL') else []) + [C('AISquad_TriggerAlarm')])] + script
-            if dead_hold:                                   # (N15: Jones is dead: hold where you are, no hunt order, no search walk over his body)
-                script = [If(E('HumanPlayer_0.isDead'), [If(Not(EQ(SQ_S, ST('HoldArea'))), [C('AISquad_SwitchState', ST('HoldArea'))])], script)]
             if os.environ.get('ALARMAI_TRACE'):           # debug: breakpoints on 0x4a5310 (every event) / 0x4a5290 (hunt branch)
                 script[0:0] = [C('AISquad_GetEventSpecificInt32'), If(ALARM, [C('AISquad_GetCurrentPatrolID')])]
                 if chain:
