@@ -210,9 +210,10 @@ static class U
         var enc = Encoding.GetEncoding(28591); var t = enc.GetString(File.ReadAllBytes(p));
         t = SetKey(t, "General", "EnumerateRefreshRates", "true");
         t = SetKey(t, "GeneralExt", "FullscreenAttributes", "fake");
+        t = SetKey(t, "GeneralExt", "PresentationModel", "flip_discard");   // (11-24: legacy discard swapchain + OBS Game Capture = crash in dxcore; flip model fixes it, owner-tested)
         t = SetKey(t, "GeneralExt", "FPSLimit", "60");               // (owner 11-24: 60 fps cap by default on every option; change it in dgVoodoo.conf)
         File.WriteAllBytes(p, enc.GetBytes(t));
-        Log.Write("dgVoodoo.conf: EnumerateRefreshRates = true, FullscreenAttributes = fake, FPSLimit = 60");
+        Log.Write("dgVoodoo.conf: EnumerateRefreshRates = true, FullscreenAttributes = fake, PresentationModel = flip_discard, FPSLimit = 60");
     }
 
     // set key = value inside [section] (adds the line at the end of the section when it is missing)
