@@ -1,0 +1,18 @@
+# never commit game files or build outputs
+*.exe
+*.dll
+*.dat
+*.res
+*.qvm
+*.zip
+*.mp3
+*.wav
+*.jpg
+*.png
+*.tga
+*.bmp
+build/
+dist/
+__pycache__/
+*.pyc
+*.log
