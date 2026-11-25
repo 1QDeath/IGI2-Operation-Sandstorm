@@ -25,13 +25,52 @@ using Microsoft.Win32;
 
 static class Program
 {
+    // v1.6: the real path (Application.ExecutablePath turns "%41" in a folder name into "A")
+    static string exePath;
+    public static string ExePath
+    {
+        get
+        {
+            if (exePath == null) { try { exePath = Process.GetCurrentProcess().MainModule.FileName; } catch { exePath = typeof(Program).Assembly.Location; } }
+            return exePath;
+        }
+    }
+
+    // a message a player can act on, for errors that reach the top
+    public static string Friendly(Exception e)
+    {
+        if (e is FileNotFoundException || e is FileLoadException || e is TypeLoadException)
+            if ((e.Message ?? "").IndexOf("System.IO.Compression", StringComparison.OrdinalIgnoreCase) >= 0)
+                return "This setup needs Microsoft .NET Framework 4.5 or newer (built into Windows 8/10/11; on Windows 7 install it from microsoft.com).";
+        if (e is UnauthorizedAccessException)
+            return e.Message + "\n\nWindows did not allow the change. If the game is in Program Files: right-click Setup.exe > Run as administrator, or move the game folder (for example to C:\\Games).";
+        int hr = 0; try { hr = Marshal.GetHRForException(e) & 0xFFFF; } catch { }
+        if (e is IOException && (hr == 112 || hr == 39))
+            return "The disk is full. Free some space and run Setup again.";
+        return e.Message;
+    }
+
     [STAThread]
     static int Main(string[] args)
     {
         Application.EnableVisualStyles();
         Application.SetCompatibleTextRenderingDefault(false);
         var a = new Args(args);
-        try { Log.PathName = Path.Combine(Path.GetTempPath(), "Sandstorm_Setup.log"); Log.Write("---- " + Application.ExecutablePath + " " + string.Join(" ", args)); } catch { }
+        try { Log.PathName = Path.Combine(Path.GetTempPath(), "Sandstorm_Setup.log"); Log.Write("---- " + Program.ExePath + " " + string.Join(" ", args)); } catch { }
+        // v1.6: nothing reaches the raw .NET "unhandled exception" dialog
+        bool quiet = a.Has("/S") || a.Get("/shots=") != null;
+        Application.SetUnhandledExceptionMode(UnhandledExceptionMode.CatchException);
+        Application.ThreadException += (s, e) =>
+        {
+            Log.Write("UI ERROR " + e.Exception);
+            if (!quiet) try { MessageBox.Show(Friendly(e.Exception) + (Log.PathName != null ? "\n\nDetails: " + Log.PathName : ""), "Operation Sandstorm", MessageBoxButtons.OK, MessageBoxIcon.Error); } catch { }
+        };
+        AppDomain.CurrentDomain.UnhandledException += (s, e) =>
+        {
+            Log.Write("FATAL " + e.ExceptionObject);
+            if (quiet) { try { Console.Error.WriteLine(e.ExceptionObject); } catch { } Environment.Exit(1); }
+            try { MessageBox.Show(Friendly(e.ExceptionObject as Exception ?? new Exception("" + e.ExceptionObject)) + (Log.PathName != null ? "\n\nDetails: " + Log.PathName : ""), "Operation Sandstorm", MessageBoxButtons.OK, MessageBoxIcon.Error); } catch { }
+        };
         try
         {
             if (a.Has("/uninstall")) return Uninstaller.Run(a);
@@ -53,7 +92,8 @@ static class Program
                 if (a.Get("/shots=") != null) try { Directory.CreateDirectory(a.Get("/shots=")); File.WriteAllText(Path.Combine(a.Get("/shots="), "error.txt"), e.ToString()); } catch { }
                 return 1;
             }
-            MessageBox.Show(e.Message, "Operation Sandstorm", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            Log.Write("ERROR " + e);
+            MessageBox.Show(Friendly(e), "Operation Sandstorm", MessageBoxButtons.OK, MessageBoxIcon.Error);
             return 1;
         }
     }
@@ -105,12 +145,35 @@ class Payload
     public static Payload Load()
     {
         var p = new Payload();
-        p.Dir = Path.GetDirectoryName(Application.ExecutablePath);
-        var first = Directory.GetFiles(p.Dir, "*.dat").OrderBy(x => x).FirstOrDefault(x =>
+        p.Dir = Path.GetDirectoryName(Program.ExePath);
+        // v1.6: the .dat whose setup.json names ITSELF as part 1 (an old "Sandstorm (1).dat" next to a new download never mixes builds)
+        string first = null, any = null;
+        foreach (var x in Directory.GetFiles(p.Dir, "*.dat").OrderBy(f => f, StringComparer.OrdinalIgnoreCase))
         {
-            try { using (var z = ZipFile.OpenRead(x)) return z.GetEntry("_setup/setup.json") != null; } catch { return false; }
-        });
-        if (first == null) throw new Exception("The setup data file (Sandstorm*.dat) is missing next to Setup.exe.");
+            try
+            {
+                using (var z = ZipFile.OpenRead(x))
+                {
+                    var e = z.GetEntry("_setup/setup.json"); if (e == null) continue;
+                    if (any == null) any = x;
+                    using (var r = new StreamReader(e.Open(), Encoding.UTF8))
+                    {
+                        var j = new JavaScriptSerializer { MaxJsonLength = int.MaxValue }.Deserialize<Dictionary<string, object>>(r.ReadToEnd());
+                        object parts; var l = j.TryGetValue("parts", out parts) ? parts as System.Collections.ArrayList : null;
+                        if (l != null && l.Count > 0 && string.Equals("" + l[0], Path.GetFileName(x), StringComparison.OrdinalIgnoreCase)) { first = x; break; }
+                    }
+                }
+            }
+            catch { }
+        }
+        first = first ?? any;
+        if (first == null)
+        {
+            var d = p.Dir ?? "";
+            if (d.IndexOf("\\Temp1_", StringComparison.OrdinalIgnoreCase) >= 0 || d.IndexOf(".zip", StringComparison.OrdinalIgnoreCase) >= 0)
+                throw new Exception("Setup was started from inside the zip. Extract the zip first (right-click > Extract All), then run Setup.exe from the extracted folder.");
+            throw new Exception("The setup data file (Sandstorm*.dat) is missing next to Setup.exe. Keep Setup.exe and Sandstorm.dat together in one folder (extract the whole zip).");
+        }
         using (var z = ZipFile.OpenRead(first))
         using (var r = new StreamReader(z.GetEntry("_setup/setup.json").Open(), Encoding.UTF8))
         {
@@ -146,13 +209,106 @@ static class U
     static extern bool CreateHardLink(string lpFileName, string lpExistingFileName, IntPtr sec);
 
     public static string Md5(string p) { using (var m = MD5.Create()) using (var f = File.OpenRead(p)) return Hex(m.ComputeHash(f)); }
+    public static string Md5Of(byte[] b) { using (var m = MD5.Create()) return Hex(m.ComputeHash(b)); }
     public static string Sha1(string p) { using (var m = SHA1.Create()) using (var f = File.OpenRead(p)) return Hex(m.ComputeHash(f)); }
     static string Hex(byte[] b) { var s = new StringBuilder(); foreach (var x in b) s.Append(x.ToString("x2")); return s.ToString(); }
     public static void Link(string src, string dst)
     {
         Directory.CreateDirectory(Path.GetDirectoryName(dst));
-        if (!CreateHardLink(dst, src, IntPtr.Zero)) File.Copy(src, dst, true);
+        if (!CreateHardLink(dst, src, IntPtr.Zero)) { File.Copy(src, dst, true); ClearRO(dst); }
     }
+    // v1.6: read-only flags (a game copied from a CD / some repacks) never block a write or a delete
+    public static void ClearRO(string p)
+    {
+        try { var a = File.GetAttributes(p); if ((a & FileAttributes.ReadOnly) != 0) File.SetAttributes(p, a & ~FileAttributes.ReadOnly); } catch { }
+    }
+    public static void DeleteFile(string p) { if (File.Exists(p)) { ClearRO(p); File.Delete(p); } }
+    public static void DeleteDir(string d)
+    {
+        if (!Directory.Exists(d)) return;
+        foreach (var f in Directory.GetFiles(d, "*", SearchOption.AllDirectories)) ClearRO(f);
+        Directory.Delete(d, true);
+    }
+    // the whole new file is on disk before the old one goes (a full disk never leaves a game file cut short or missing)
+    public static void WriteSafe(string p, byte[] data) { Swap(p, tmp => File.WriteAllBytes(tmp, data)); }
+    public static void CopySafe(string src, string p) { Swap(p, tmp => File.Copy(src, tmp)); }
+    // write <p>.sstmp, then swap it in (the old file goes only once the new one is complete; the temp never stays behind)
+    static void Swap(string p, Action<string> make)
+    {
+        var tmp = p + ".sstmp"; bool removed = false;
+        try
+        {
+            if (File.Exists(tmp)) DeleteFile(tmp);
+            make(tmp); ClearRO(tmp);
+            if (File.Exists(p))
+            {
+                ClearRO(p);
+                try { File.Replace(tmp, p, null, true); return; }
+                catch (Exception e) { Log.Write("replace " + p + ": " + e.Message + " - delete + move"); }
+                File.Delete(p); removed = true;
+            }
+            for (int i = 0; ; i++)                                // an antivirus scan can hold the new file for a moment
+            {
+                try { File.Move(tmp, p); break; }
+                catch (IOException) { if (i >= 9) throw; Thread.Sleep(300); }
+                catch (UnauthorizedAccessException) { if (i >= 9) throw; Thread.Sleep(300); }
+            }
+        }
+        // the temp goes only while the real file exists (if the swap died between delete and move, the complete new file stays as .sstmp)
+        finally { try { if (File.Exists(tmp) && !(removed && !File.Exists(p))) { ClearRO(tmp); File.Delete(tmp); } } catch { } }
+    }
+    // a file whose swap died half-way: the complete .sstmp stands in for it
+    public static string OrTemp(string p) { return !File.Exists(p) && File.Exists(p + ".sstmp") ? p + ".sstmp" : p; }
+    // a free name in dir for file name n (name, name (2), ...)
+    public static string FreeName(string dir, string n)
+    {
+        var p = Path.Combine(dir, n);
+        for (int i = 2; File.Exists(p) || Directory.Exists(p); i++) p = Path.Combine(dir, Path.GetFileNameWithoutExtension(n) + " (" + i + ")" + Path.GetExtension(n));
+        return p;
+    }
+    // null = we can write files in dir (creates and deletes a probe file)
+    public static string CanWrite(string dir)
+    {
+        try
+        {
+            var p = Path.Combine(dir, "_sandstorm_write_test.tmp");
+            File.WriteAllBytes(p, new byte[] { 1 }); File.Delete(p); return null;
+        }
+        catch (Exception e) { return e.Message; }
+    }
+    public static void Unblock(string p) { try { DeleteFileW(p + ":Zone.Identifier"); } catch { } }
+    const string Layers = @"Software\Microsoft\Windows NT\CurrentVersion\AppCompatFlags\Layers";
+    // the Windows compatibility flags for an exe (null = none)
+    public static string CompatFlag(string exe)
+    {
+        try { using (var k = Registry.CurrentUser.OpenSubKey(Layers)) return k == null ? null : k.GetValue(exe) as string; } catch { return null; }
+    }
+    public static void SetCompatFlag(string exe, string v)
+    {
+        try
+        {
+            using (var k = Registry.CurrentUser.CreateSubKey(Layers))
+            {
+                if (v == null) { if (k.GetValue(exe) != null) k.DeleteValue(exe, false); }
+                else k.SetValue(exe, v);
+            }
+        }
+        catch { }
+    }
+    // a game in Program Files run without admin writes its profile to VirtualStore: the game then reads THAT copy (null = none)
+    public static string VirtualStoreProfile(string game)
+    {
+        try
+        {
+            var full = Path.GetFullPath(game); var root = Path.GetPathRoot(full);
+            if (root.Length < 2 || root.StartsWith(@"\\")) return null;
+            var p = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "VirtualStore", full.Substring(root.Length), "config.qvm");
+            return File.Exists(p) ? p : null;
+        }
+        catch { return null; }
+    }
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    static extern bool DeleteFileW(string name);
     // an igi2.exe running FROM this game folder (another copy of the game elsewhere does not block); unknown path = blocks
     public static bool GameRunning(string dir)
     {
@@ -193,14 +349,30 @@ static class U
         s.TargetPath = target; s.WorkingDirectory = dir; s.IconLocation = icon + ",0"; s.Save();
     }
     public static string DesktopLnk(string product) { return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory), product + ".lnk"); }
-    public static void RunDisplay(string game, string mode)
+    // null = fine (or nothing to run), else what went wrong (v1.6: reported to the player, a hung script is stopped before we touch its files)
+    public static string RunDisplay(string game, string mode)
     {
         var cmd = Path.Combine(game, "IGI2_Display_Setup.cmd");
-        if (mode == "none" || !File.Exists(cmd)) return;
-        var psi = new ProcessStartInfo("cmd.exe", "/c \"\"" + cmd + "\" /" + mode + " /nostart\"");
-        psi.WorkingDirectory = game; psi.CreateNoWindow = true; psi.UseShellExecute = false; psi.WindowStyle = ProcessWindowStyle.Hidden;
-        psi.RedirectStandardInput = true;                       // a "pause" in the script reads end-of-input instead of waiting
-        using (var p = Process.Start(psi)) { p.StandardInput.Close(); p.WaitForExit(120000); Log.Write("display " + mode + " exit " + (p.HasExited ? p.ExitCode.ToString() : "timeout")); }
+        if (mode == "none" || !File.Exists(cmd)) return null;
+        try
+        {
+            var psi = new ProcessStartInfo(Path.Combine(Environment.SystemDirectory, "cmd.exe"), "/c \"\"" + cmd + "\" /" + mode + " /nostart\"");
+            psi.WorkingDirectory = game; psi.CreateNoWindow = true; psi.UseShellExecute = false; psi.WindowStyle = ProcessWindowStyle.Hidden;
+            psi.RedirectStandardInput = true;                       // a "pause" in the script reads end-of-input instead of waiting
+            using (var p = Process.Start(psi))
+            {
+                p.StandardInput.Close();
+                if (!p.WaitForExit(120000)) { try { KillTree(p.Id); } catch { } Log.Write("display " + mode + " timeout"); return "it did not finish in 2 minutes"; }
+                Log.Write("display " + mode + " exit " + p.ExitCode);
+                return p.ExitCode == 0 ? null : "exit code " + p.ExitCode;
+            }
+        }
+        catch (Exception e) { Log.Write("display " + mode + ": " + e); return e.Message; }
+    }
+    static void KillTree(int pid)
+    {
+        using (var k = Process.Start(new ProcessStartInfo(Path.Combine(Environment.SystemDirectory, "taskkill.exe"), "/T /F /PID " + pid) { CreateNoWindow = true, UseShellExecute = false }))
+            k.WaitForExit(10000);
     }
     // after the display script: Sharp keeps the owner's look (dgVoodoo [DirectX] Antialiasing 4x / Filtering 16); Low-end / Very low keep the script's
     // v1.3 (owner 11-24: plain GOG copy crashed at start in dxcore.dll; GOG + Patch, which has these two, works): on every base
@@ -213,7 +385,7 @@ static class U
         t = SetKey(t, "GeneralExt", "FullscreenAttributes", "fake");
         t = SetKey(t, "GeneralExt", "PresentationModel", "flip_discard");   // (11-24: legacy discard swapchain + OBS Game Capture = crash in dxcore; flip model fixes it, owner-tested)
         t = SetKey(t, "GeneralExt", "FPSLimit", "60");               // (owner 11-24: 60 fps cap by default on every option; change it in dgVoodoo.conf)
-        File.WriteAllBytes(p, enc.GetBytes(t));
+        WriteSafe(p, enc.GetBytes(t));
         Log.Write("dgVoodoo.conf: EnumerateRefreshRates = true, FullscreenAttributes = fake, PresentationModel = flip_discard, FPSLimit = 60");
     }
 
@@ -240,7 +412,7 @@ static class U
         foreach (var kv in c.Map("sharp_conf"))
             sec = Regex.Replace(sec, "(?m)^(" + Regex.Escape(kv.Key) + "[ \t]*=)[^\r\n]*", mm => mm.Groups[1].Value + " " + kv.Value);
         t = t.Substring(0, m.Index) + sec + t.Substring(m.Index + m.Length);
-        File.WriteAllBytes(p, enc.GetBytes(t));
+        WriteSafe(p, enc.GetBytes(t));
         Log.Write("sharp look applied");
     }
     public static void Register(Payload c, string game, string uninstallExe, long bytes)
@@ -315,21 +487,48 @@ static class Qvm
     class Site { public int Diff; public int Val; public int At; public int W; }
 
     // v1.5: a usable config.qvm = LOOP header + code inside the file (a 0-byte / cut profile from a game crash is not)
-    public static bool Readable(byte[] b)
+    static bool HeaderOk(byte[] b)
     {
         try
         {
             if (b == null || b.Length < 64 || Encoding.ASCII.GetString(b, 0, 4) != "LOOP") return false;
             long code = U32(b, 44), size = U32(b, 48), symT = U32(b, 12), symD = U32(b, 16), symTS = U32(b, 20);
-            if (code + size > b.Length || symT + symTS > b.Length || symD >= b.Length) return false;
+            if (code < 64 || code + size > b.Length || symT + symTS > b.Length || symD >= b.Length) return false;
             for (int k = 0; k < symTS / 4; k++) { long o = symD + U32(b, (int)symT + 4 * k); if (o < 0 || o >= b.Length || Array.IndexOf(b, (byte)0, (int)o) < 0) return false; }
-            int c0, s0; Find(b, out c0, out s0);
             return true;
         }
         catch { return false; }
     }
+    public static bool Readable(byte[] b)
+    {
+        if (!HeaderOk(b)) return false;
+        try { int c0, s0; FindRaw(b, out c0, out s0); return true; } catch { return false; }
+    }
 
+    // v1.6: never throws - a file it cannot follow has no sites (the uninstaller called this on a cut-short profile and died)
     static List<Site> Find(byte[] b, out int code, out int size)
+    {
+        code = 0; size = 0;
+        if (!HeaderOk(b)) return new List<Site>();
+        try { return FindRaw(b, out code, out size); } catch { code = 0; size = 0; return new List<Site>(); }
+    }
+
+    // set progress without ever throwing: null when the file cannot be changed safely (unknown opcodes, did not settle, result unreadable)
+    public static byte[] TrySetProgress(byte[] b, Func<int, int, int> fn)
+    {
+        try
+        {
+            if (!Readable(b)) return null;
+            var o = SetProgress(b, fn);
+            if (!Readable(o)) return null;
+            int c, s; foreach (var x in Find(o, out c, out s)) if (fn(x.Diff, x.Val) != x.Val) return null;
+            return o;
+        }
+        catch { return null; }
+    }
+    public static bool HasProgress(byte[] b) { int c, s; return Find(b, out c, out s).Count > 0; }
+
+    static List<Site> FindRaw(byte[] b, out int code, out int size)
     {
         code = 0; size = 0;
         var r = new List<Site>();
@@ -508,7 +707,7 @@ static class Installer
     public static int Silent(Payload c, Args a)
     {
         var o = new Options();
-        o.Dir = a.Get("/D=") ?? (c.Full ? c.S("default_dir") : U.FindGog(c.S("gog_id")));
+        o.Dir = CleanDir(a.Get("/D=") ?? (c.Full ? c.S("default_dir") : U.FindGog(c.S("gog_id"))));
         if (a.Has("/noshortcut")) o.Shortcut = false;
         if (a.Has("/unknownexe")) { o.ForceUnknownExe = true; AllowUnknownExe = true; }
         if (a.Get("/display=") != null) o.Display = a.Get("/display=").ToLowerInvariant();
@@ -519,16 +718,37 @@ static class Installer
         return 0;
     }
 
-    // null = fine, else the reason
+    // "C:\Games\IGI 2", "\"C:\Games\IGI 2\"" (Explorer's Copy as path) and "C:\Games\IGI 2\igi2.exe" all mean the game folder
+    public static string CleanDir(string dir)
+    {
+        if (dir == null) return null;
+        dir = dir.Trim().Trim('"').Trim();
+        try { if (dir.EndsWith(".exe", StringComparison.OrdinalIgnoreCase) && File.Exists(dir)) dir = Path.GetDirectoryName(dir); } catch { }
+        return dir.TrimEnd('\\', '/').Length >= 3 ? dir.TrimEnd('\\', '/') : dir;
+    }
+
+    static long FreeSpace(string dir)
+    {
+        try { return new DriveInfo(Path.GetPathRoot(Path.GetFullPath(dir))).AvailableFreeSpace; } catch { return long.MaxValue; }   // network paths: not checked
+    }
+
+    // null = fine, else the reason (v1.6: never throws - an odd path is a message, not a crash)
     public static string Check(Payload c, string dir)
     {
+        try { return CheckCore(c, dir); }
+        catch (Exception e) { Log.Write("check: " + e); return "This folder cannot be used: " + Program.Friendly(e); }
+    }
+
+    static string CheckCore(Payload c, string dir)
+    {
         if (string.IsNullOrWhiteSpace(dir)) return "Choose a folder.";
+        try { dir = Path.GetFullPath(dir); } catch { return "This is not a valid folder path: " + dir; }
         if (U.GameRunning(dir)) return "IGI 2 is running from this folder - close the game first.";
         if (c.Full)
         {
             if (File.Exists(Path.Combine(dir, "igi2.exe"))) return "That folder already holds an IGI 2 - choose an empty or new folder.";
             var root = Path.GetPathRoot(Path.GetFullPath(dir));
-            if (new DriveInfo(root).AvailableFreeSpace < c.L("size") + (200L << 20)) return "Not enough free disk space on " + root + " (needs " + (c.L("size") >> 20) + " MB).";
+            if (FreeSpace(dir) < c.L("size") + (200L << 20)) return "Not enough free disk space on " + root + " (needs " + (c.L("size") >> 20) + " MB).";
             return null;
         }
         if (!U.IsGame(dir)) return "This is not an IGI 2 folder (igi2.exe and MISSIONS\\multiplayer expected).";
@@ -539,9 +759,25 @@ static class Installer
         if (!File.Exists(Path.Combine(dir, "MENUSYSTEM", "loadingscreen.res"))) return "MENUSYSTEM\\loadingscreen.res is missing in this IGI 2 folder.";
         if (!Directory.Exists(Path.Combine(dir, "LANGUAGE"))) return "The LANGUAGE folder is missing in this IGI 2 folder.";
         var bk = Path.Combine(dir, BK);
-        bool ours = File.Exists(Path.Combine(bk, "manifest.txt"));
-        if (Directory.Exists(Path.Combine(loc, c.S("folder"))) && !ours) return "This folder already holds a Sandstorm mission that this setup did not install - remove it first.";
-        if (new DriveInfo(Path.GetPathRoot(Path.GetFullPath(dir))).AvailableFreeSpace < c.L("size") + (100L << 20) && !ours) return "Not enough free disk space.";
+        bool ours = File.Exists(U.OrTemp(Path.Combine(bk, "manifest.txt")));
+        if (Directory.Exists(Path.Combine(loc, c.S("folder"))) && !ours)
+            return Directory.Exists(Path.Combine(dir, "_ThirdWarhead_backup"))
+                ? "This folder has the Third Warhead campaign installed, which already holds Sandstorm. Uninstall Third Warhead first (or use a clean IGI 2 folder)."
+                : "This folder already holds a Sandstorm mission that this setup did not install - remove it first.";
+        if (FreeSpace(dir) < (ours ? 100L << 20 : c.L("size") + (100L << 20))) return "Not enough free disk space (needs about " + ((c.L("size") >> 20) + 100) + " MB).";
+        // v1.6: we must be able to write here BEFORE anything changes (Program Files without admin = access denied)
+        foreach (var w in new[] { dir, Path.Combine(dir, "MISSIONS"), Path.Combine(dir, "MENUSYSTEM") })
+        {
+            var e = U.CanWrite(w);
+            if (e != null) return "Setup cannot write into " + w + " (" + e + ").\n\nIf the game is in Program Files: close this, right-click Setup.exe > Run as administrator. Or move the game folder (for example to C:\\Games) and pick it here.";
+        }
+        foreach (var f in new[] { "igi2.exe", @"MISSIONS\igi2.qvm", "config.qvm" })
+        {
+            var p = Path.Combine(dir, f); if (!File.Exists(p)) continue;
+            try { using (File.Open(p, FileMode.Open, FileAccess.ReadWrite, FileShare.ReadWrite)) { } }
+            catch (UnauthorizedAccessException) { U.ClearRO(p); try { using (File.Open(p, FileMode.Open, FileAccess.ReadWrite, FileShare.ReadWrite)) { } } catch (Exception e) { return "Setup cannot change " + f + " (" + e.Message + "). Run Setup as administrator, or check that no program (antivirus, game) holds the file."; } }
+            catch (IOException e) { return f + " is in use by another program (" + e.Message + "). Close the game / tools using it and try again."; }
+        }
         // the mission needs the engine fixes: an exe that cannot take them is refused (rig 11-24: with the stock exe the screen turns grey
         // about a minute into the mission, every run)
         if (!AllowUnknownExe)
@@ -563,8 +799,12 @@ static class Installer
 
     public static bool AllowUnknownExe;          // /unknownexe (testing): install without the fixes instead of refusing
 
-    public static void Run(Payload c, Options o, Action<double, string> prog)
+    public static bool Changed;                  // the game folder was changed (past the preflight)
+    public static string Step = "";              // the step running now (named in an error message)
+    public static void Run(Payload c, Options o, Action<double, string> prog0)
     {
+        Step = "Starting"; Changed = false;
+        Action<double, string> prog = (f, s) => { Step = s; Log.Write("step " + s); prog0(f, s); };
         Directory.CreateDirectory(o.Dir);
         if (c.Full) RunFull(c, o, prog); else RunAddon(c, o, prog);
     }
@@ -573,6 +813,7 @@ static class Installer
     static void RunFull(Payload c, Options o, Action<double, string> prog)
     {
         string dir = Path.GetFullPath(o.Dir);
+        Changed = true;
         long total = c.L("bytes_total"), done = 0;
         var list = new List<string>();
         foreach (var part in c.Parts)
@@ -593,10 +834,12 @@ static class Installer
         U.SharpLook(c, dir, o.Display);
         U.SafeConf(dir);
         string un = Path.Combine(dir, "Uninstall.exe");
-        File.Copy(Application.ExecutablePath, un, true);
+        File.Copy(Program.ExePath, un, true);
         list.Add("Uninstall.exe");
         File.WriteAllLines(Path.Combine(dir, "uninstall.dat"), new[] { "full|" + c.S("key") + "|" + c.S("product") }.Concat(list.Select(x => "f|" + x)));
-        if (o.Shortcut) { var l = U.DesktopLnk(c.S("product")); U.Shortcut(l, Path.Combine(dir, "igi2.exe"), dir, Path.Combine(dir, "igi2.exe")); File.AppendAllText(Path.Combine(dir, "uninstall.dat"), "lnk|" + l + "\r\n"); }
+        if (o.Shortcut)
+            try { var l = U.DesktopLnk(c.S("product")); U.Shortcut(l, Path.Combine(dir, "igi2.exe"), dir, Path.Combine(dir, "igi2.exe")); File.AppendAllText(Path.Combine(dir, "uninstall.dat"), "lnk|" + l + "\r\n"); }
+            catch (Exception e) { Log.Write("shortcut: " + e); }
         U.Register(c, dir, un, total);
         prog(1, "Done");
     }
@@ -606,7 +849,8 @@ static class Installer
     {
         public string G, Bk; public List<string[]> Rows = new List<string[]>();
         public Dictionary<string, string> Files = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-        public void Save() { Directory.CreateDirectory(Bk); File.WriteAllLines(Path.Combine(Bk, "manifest.txt"), Rows.Select(r => string.Join("|", r))); }
+        // v1.6: the manifest is replaced whole (a crash mid-write keeps the previous complete one)
+        public void Save() { Directory.CreateDirectory(Bk); U.WriteSafe(Path.Combine(Bk, "manifest.txt"), Encoding.UTF8.GetBytes(string.Join("\r\n", Rows.Select(r => string.Join("|", r))) + "\r\n")); }
         public void Row(params string[] r) { Rows.Add(r); Save(); }
         public void Backup(string rel)
         {
@@ -614,7 +858,7 @@ static class Installer
             var p = Path.Combine(G, rel);
             if (File.Exists(p))
             {
-                var d = Path.Combine(Bk, "files", rel); Directory.CreateDirectory(Path.GetDirectoryName(d)); File.Copy(p, d, true);
+                var d = Path.Combine(Bk, "files", rel); Directory.CreateDirectory(Path.GetDirectoryName(d)); U.CopySafe(p, d);
                 Files[rel] = "backup";
             }
             else Files[rel] = "new";
@@ -624,14 +868,20 @@ static class Installer
         public void Put(byte[] data, string rel)
         {
             Backup(rel); var d = Path.Combine(G, rel); Directory.CreateDirectory(Path.GetDirectoryName(d));
-            if (File.Exists(d)) File.Delete(d);
-            File.WriteAllBytes(d, data);
+            U.WriteSafe(d, data);
         }
         public static Ctx Load(string g)
         {
             var c = new Ctx { G = g, Bk = Path.Combine(g, BK) };
-            var m = Path.Combine(c.Bk, "manifest.txt");
-            if (File.Exists(m)) foreach (var l in File.ReadAllLines(m)) { var r = l.Split('|'); c.Rows.Add(r); if (r[0] == "file") c.Files[r[2]] = r[1]; }
+            var m = U.OrTemp(Path.Combine(c.Bk, "manifest.txt"));
+            if (File.Exists(m))
+                foreach (var l in File.ReadAllLines(m))
+                {
+                    if (l.Trim().Length == 0) continue;
+                    var r = l.Split('|'); if (r.Length < 2) continue;            // a cut row never breaks a later install
+                    if (r[0] == "file") { if (r.Length < 3) continue; c.Files[r[2]] = r[1]; }
+                    c.Rows.Add(r);
+                }
             return c;
         }
     }
@@ -671,21 +921,43 @@ static class Installer
             if (missing.Count > 0)
                 throw new Exception("Your IGI 2 lacks game data this mission is built from (nothing was changed):\n- " + string.Join("\n- ", missing.Take(12)) +
                                     (missing.Count > 12 ? "\n- ... " + (missing.Count - 12) + " more" : ""));
-            if (!x.Rows.Any(r => r[0] == "dir" && r[1] == relDir)) x.Row("dir", relDir);
-            // old Sandstorm mid-mission saves break a new build: moved into the backup folder
+            // v1.6 preflight: the mission list must be readable and writable back BEFORE anything changes (it used to fail after the texts were in)
+            var lst = Path.Combine("MISSIONS", "igi2.qvm");
+            var lraw = File.ReadAllBytes(x.Orig(lst));
+            var ids = Qvm.ListIds(lraw);
+            byte[] listNew = null;
+            if (ids != null && ids.Count > 0)
+            {
+                int mid0 = (int)c.L("mission_id");
+                ids.RemoveAll(v => v == mid0); ids.Add(mid0);
+                try { listNew = Qvm.ListEncode(ids, lraw); var back = Qvm.ListIds(listNew); if (back == null || !back.SequenceEqual(ids)) listNew = null; } catch { listNew = null; }
+            }
+            if (listNew == null)
+                throw new Exception("MISSIONS\\igi2.qvm (the game's mission list) could not be read - it is damaged or from a version this setup does not know (" + lraw.Length + " bytes). Nothing was changed.\n\n" +
+                                    "Restore that one file from your game's installer (GOG: Verify / Repair), then run Setup again.");
+            // ---- from here on the game changes: the uninstaller and the Apps entry exist FIRST, so a stop at any later step can always be undone
+            Changed = true;
+            Directory.CreateDirectory(x.Bk);
+            string un = Path.Combine(x.Bk, "Uninstall.exe");
+            if (!string.Equals(Path.GetFullPath(Program.ExePath), Path.GetFullPath(un), StringComparison.OrdinalIgnoreCase)) U.CopySafe(Program.ExePath, un);
+            U.Unblock(un);
+            if (!x.Rows.Any(r => r[0] == "meta")) x.Row("meta", c.S("key"), c.S("product"));
+            try { U.Register(c, g, un, c.L("size")); } catch (Exception e) { Log.Write("register: " + e); Warnings.Add("Windows did not let Setup add Operation Sandstorm to Settings > Apps (" + e.Message + "). To uninstall, run " + un + "."); }
+            if (!x.Rows.Any(r => r[0] == "dir" && r.Length > 1 && r[1] == relDir)) x.Row("dir", relDir);
+            // old Sandstorm mid-mission saves break a new build: moved into the backup folder (v1.6: never over an older one with the same name)
             var sg = Path.Combine(g, "savegames");
             if (Directory.Exists(sg))
                 foreach (var f in Directory.GetFiles(sg, "*.igi2save"))
                 {
                     var parts = Path.GetFileNameWithoutExtension(f).Split('-');
-                    if (parts.Length == 4 && parts[2] == c.S("mission_id")) { var d = Path.Combine(x.Bk, "old_saves"); Directory.CreateDirectory(d); File.Move(f, Path.Combine(d, Path.GetFileName(f))); }
+                    if (parts.Length == 4 && parts[2] == c.S("mission_id")) { var d = Path.Combine(x.Bk, "old_saves"); Directory.CreateDirectory(d); File.Move(f, U.FreeName(d, Path.GetFileName(f))); }
                 }
             prog(0.32, "Mission folder");
-            if (Directory.Exists(target)) Directory.Delete(target, true);
+            U.DeleteDir(target);
             foreach (var f in Directory.GetFiles(baseDir, "*", SearchOption.AllDirectories))
             {
                 var n = Path.GetFileName(f).ToLowerInvariant(); if (n == "mission.qvm" || n == "objects.qvm") continue;
-                var d = Path.Combine(target, f.Substring(baseDir.Length + 1)); Directory.CreateDirectory(Path.GetDirectoryName(d)); File.Copy(f, d, true);
+                var d = Path.Combine(target, f.Substring(baseDir.Length + 1)); Directory.CreateDirectory(Path.GetDirectoryName(d)); File.Copy(f, d, true); U.ClearRO(d);
             }
             var com = Path.Combine(loc, c.S("own_common"));
             foreach (var f in Directory.GetFiles(com, "*", SearchOption.AllDirectories))
@@ -693,62 +965,35 @@ static class Installer
                 var rel = f.Substring(com.Length + 1); if (rel.Split('\\')[0].Equals("sounds", StringComparison.OrdinalIgnoreCase)) continue;
                 U.Link(f, Path.Combine(target, "common", rel));
             }
-            foreach (var f in c.List("deleted")) { var p = Path.Combine(target, f.Replace('/', '\\')); if (File.Exists(p)) File.Delete(p); }
+            foreach (var f in c.List("deleted")) U.DeleteFile(Path.Combine(target, f.Replace('/', '\\')));
             var files = c.List("files"); int i = 0;
             foreach (var f in files)
             {
                 var d = Path.Combine(target, f.Replace('/', '\\')); Directory.CreateDirectory(Path.GetDirectoryName(d));
-                if (File.Exists(d)) File.Delete(d);
+                U.DeleteFile(d);
                 z.GetEntry("mission/" + f).ExtractToFile(d);
                 prog(0.35 + 0.35 * (++i) / files.Count, f);
             }
             foreach (var kv in c.Map("copies"))
             {
                 var d = Path.Combine(target, kv.Key.Replace('/', '\\')); Directory.CreateDirectory(Path.GetDirectoryName(d));
-                if (File.Exists(d)) File.Delete(d);
-                File.Copy(Path.Combine(g, kv.Value), d);
+                U.CopySafe(Path.Combine(g, kv.Value), d);
             }
             foreach (var kv in built)
             {
                 var d = Path.Combine(target, kv.Key.Replace('/', '\\')); Directory.CreateDirectory(Path.GetDirectoryName(d));
-                if (File.Exists(d)) File.Delete(d);
-                File.WriteAllBytes(d, kv.Value);
+                U.WriteSafe(d, kv.Value);
             }
             prog(0.75, "Texts and pictures");
             LangAdd(x, c);                                    // our texts into EVERY language folder's files (English text)
             SpriteAdd(x, c, z);                               // the mission picture into missionsprites.res
             PatchLoading(x, z, c.List("loading"));
             foreach (var lang in new[] { "english", "USA" }) x.Put(Entry(z, "shared/intro/congratulations.jpg"), Path.Combine("SCREENS", "intro", lang, "congratulations.jpg"));
-            // mission list: the player's own list + Sandstorm at the end (any version's list)
-            var lst = Path.Combine("MISSIONS", "igi2.qvm");
-            x.Backup(lst);
-            var lraw = File.ReadAllBytes(x.Orig(lst));
-            var ids = Qvm.ListIds(lraw);
-            if (ids == null || ids.Count == 0) throw new Exception("MISSIONS\\igi2.qvm (the mission list) could not be read.");
-            int mid = (int)c.L("mission_id");
-            ids.Remove(mid); ids.Add(mid);
-            x.Put(Qvm.ListEncode(ids, lraw), lst);
+            // mission list: the player's own list + Sandstorm at the end (any version's list; read + checked in the preflight)
+            prog(0.8, "Mission list and profile");
+            x.Put(listNew, lst);
             // profile: Sandstorm (last in the list) unlocked
-            int last = ids.Count - 1;
-            var cfg = Path.Combine(g, "config.qvm");
-            // v1.5 (a friend's v1.4 install died here: "Index was out of range ... startIndex"): a damaged profile (0 bytes / cut short
-            // after a game crash) is replaced by the default one - backed up, restored on uninstall
-            bool cfgOk = File.Exists(cfg) && Qvm.Readable(File.ReadAllBytes(x.Files.ContainsKey("config.qvm") && x.Files["config.qvm"] == "backup" ? x.Orig("config.qvm") : cfg)) && Qvm.Readable(File.ReadAllBytes(cfg));
-            if (File.Exists(cfg) && !cfgOk)
-            {
-                Log.Write("config.qvm unreadable (" + new FileInfo(cfg).Length + " bytes): default profile used");
-                Warnings.Add("Your game profile (config.qvm) was damaged, so it was replaced by a fresh one (the old file is in " + BK + "). Set your video / control options again in the game.");
-                x.Put(Qvm.SetProgress(Entry(z, "shared/config_default.qvm"), (k, cur) => last), "config.qvm");
-            }
-            else if (cfgOk)
-            {
-                x.Backup("config.qvm");
-                var b = File.ReadAllBytes(x.Orig("config.qvm"));
-                var basep = Qvm.Progress(b);
-                File.WriteAllBytes(cfg, Qvm.SetProgress(File.ReadAllBytes(cfg), (k, cur) => last));
-                x.Row("config", string.Join(",", basep.Select(kv => kv.Key + "=" + kv.Value)), U.Md5(cfg));
-            }
-            else x.Put(Qvm.SetProgress(Entry(z, "shared/config_default.qvm"), (k, cur) => last), "config.qvm");
+            Profile(x, z, ids.Count - 1);
             prog(0.88, "Game exe and display");
             HandleExe(x, c, o);
             if (z.GetEntry("exe/version.dll") != null && !File.Exists(Path.Combine(g, "version.dll"))) x.Put(Entry(z, "exe/version.dll"), "version.dll");
@@ -765,18 +1010,25 @@ static class Installer
             if (dgv)
             {
                 foreach (var f in new[] { "dgVoodoo.conf.display-backup", "config.qvm.display-backup" }) x.Backup(f);   // the display script's own backups: removed again on uninstall
-                U.RunDisplay(g, o.Display);
+                // v1.6: the display script sets the Windows high-DPI flag for igi2.exe - remember what was there so uninstall puts it back
+                string exeFull = Path.Combine(g, "igi2.exe");
+                if (o.Display != "none" && !x.Rows.Any(r => r[0] == "compat")) x.Row("compat", exeFull, U.CompatFlag(exeFull) ?? "-");
+                var derr = U.RunDisplay(g, o.Display);
+                if (derr != null) Warnings.Add("The picture settings script did not finish (" + derr + "): the game keeps its current resolution. Run IGI2_Display_Setup.cmd in the game folder to set it later.");
                 U.SharpLook(c, g, o.Display);
                 U.SafeConf(g);
                 // the display script also writes config.qvm (the game's own resolution): the profile we hand back is the one after it
-                var cr = x.Rows.LastOrDefault(r => r[0] == "config"); var cq = Path.Combine(g, "config.qvm");
-                if (cr != null && File.Exists(cq)) x.Row("config", cr[1], U.Md5(cq));
+                var cr = x.Rows.LastOrDefault(r => r[0] == "config" && r.Length >= 3); var cq = Path.Combine(g, "config.qvm");
+                if (cr != null && File.Exists(cq)) x.Row("config", cr[1], cr[2] == "*" ? "*" : U.Md5(cq));
             }
-            string un = Path.Combine(x.Bk, "Uninstall.exe");
-            File.Copy(Application.ExecutablePath, un, true);
-            x.Row("meta", c.S("key"), c.S("product"));
-            if (o.Shortcut) { var l = U.DesktopLnk("IGI 2 - Operation Sandstorm"); U.Shortcut(l, Path.Combine(g, "igi2.exe"), g, Path.Combine(g, "igi2.exe")); x.Row("lnk", l); }
-            U.Register(c, g, un, c.L("size"));
+            // a desktop shortcut is a convenience: Windows blocking it (Controlled Folder Access, no WScript) never fails the install
+            if (o.Shortcut)
+            {
+                try { var l = U.DesktopLnk("IGI 2 - Operation Sandstorm"); U.Shortcut(l, Path.Combine(g, "igi2.exe"), g, Path.Combine(g, "igi2.exe")); x.Row("lnk", l); }
+                catch (Exception e) { Log.Write("shortcut: " + e); Warnings.Add("Windows did not allow a desktop shortcut (" + e.Message + "). Start the game with igi2.exe in " + g + "."); }
+            }
+            var vs = U.VirtualStoreProfile(g);
+            if (vs != null) Warnings.Add("Windows keeps a separate copy of the game profile for this folder (" + vs + "), so the game may not show Sandstorm unlocked. Moving the game out of Program Files fixes it.");
             // ---- verify OUR files: shipped files, and rebuilt packs whose every chunk matched (the rest of the folder is the player's own map)
             prog(0.96, "Checking files");
             bool patched = File.Exists(Path.Combine(g, c.S("patch_mark")));
@@ -796,6 +1048,67 @@ static class Installer
             foreach (var w in Warnings) { Console.WriteLine("WARNING: " + w); x.Row("warn", w.Replace("|", "/").Replace("\n", " ")); }
             prog(1, Warnings.Count == 0 ? "Done" : "Done (with notes)");
         }
+    }
+
+    // ---- profile (config.qvm): Sandstorm unlocked, the player's settings kept. v1.6 rules (reviewed 11-25):
+    //  * the CURRENT file decides: readable -> it is changed in place; never replaced while it works
+    //  * a damaged ORIGINAL backup (a v1.4 install that crashed after backing up a 0-byte profile) is refreshed from the working current file
+    //  * current damaged but a good backup -> start from the backup (a retry after a cut write); else a fresh default profile + a note
+    //  * the config row's md5 is "*" once the player changed the profile between two installs, so uninstall keeps their file (progress reset)
+    static void Profile(Ctx x, ZipArchive z, int last)
+    {
+        const string rel = "config.qvm";
+        var cfg = Path.Combine(x.G, rel);
+        Func<int, int, int> unlock = (k, v) => last;
+        var prev = x.Rows.LastOrDefault(r => r[0] == "config" && r.Length >= 3);
+        bool sticky = x.Rows.Any(r => r[0] == "config" && r.Length >= 3 && r[2] == "*") || (prev != null && File.Exists(cfg) && U.Md5(cfg) != prev[2]);
+        byte[] cur = File.Exists(cfg) ? File.ReadAllBytes(cfg) : null;
+        string h; bool hadBackup = x.Files.TryGetValue(rel, out h) && h == "backup";
+        byte[] orig = hadBackup ? (File.Exists(x.Orig(rel)) ? File.ReadAllBytes(x.Orig(rel)) : null) : (x.Files.ContainsKey(rel) ? null : cur);
+        bool curOk = Qvm.Readable(cur);
+        if (hadBackup && curOk && !Qvm.Readable(orig))
+        {
+            // the working profile becomes the original - but never with Sandstorm's own position in it (an earlier install may have put it there):
+            // capped at the last original mission, so uninstall never leaves the campaign pointing at a mission that is gone
+            // (a previous install's row knows the original position: use it, a key it lacks = 0)
+            var known = prev != null ? ParseProgress(prev[1]) : null;
+            var fixedOrig = Qvm.TrySetProgress(cur, (k, v) => known != null ? (known.ContainsKey(k) ? known[k] : 0) : Math.Min(v, Math.Max(0, last - 1))) ?? cur;
+            Log.Write("config.qvm: the backed-up original is damaged (" + (orig == null ? "missing" : orig.Length + " bytes") + ") - the working profile becomes the original");
+            Directory.CreateDirectory(Path.GetDirectoryName(x.Orig(rel)));
+            U.WriteSafe(x.Orig(rel), fixedOrig); orig = fixedOrig;
+        }
+        byte[] neu = curOk ? Qvm.TrySetProgress(cur, unlock) : null;
+        if (neu == null && !curOk && Qvm.Readable(orig)) { neu = Qvm.TrySetProgress(orig, unlock); if (neu != null) Log.Write("config.qvm: current damaged, rebuilt from the backup"); }
+        if (neu == null)
+        {
+            var def = Entry(z, "shared/config_default.qvm");
+            neu = Qvm.TrySetProgress(def, unlock) ?? def;
+            if (cur != null)
+            {
+                Log.Write("config.qvm unusable (" + cur.Length + " bytes, readable " + curOk + "): default profile used");
+                Warnings.Add("Your game profile (config.qvm) " + (curOk ? "is in a format this setup cannot change" : "was damaged") + ", so a fresh one was put in its place (your old file is kept in " + BK + "\\files). Set your video / control options again in the game.");
+            }
+        }
+        if (!Qvm.HasProgress(neu)) Warnings.Add("Setup could not unlock Sandstorm in your game profile: if it is not selectable, finish the earlier missions or delete config.qvm in the game folder (the game makes a new one).");
+        var basep = Qvm.Readable(orig) ? Qvm.Progress(orig) : new Dictionary<int, int>();
+        // a previous install already recorded the true original's progress (empty = the original had none): keep it
+        if (prev != null) basep = ParseProgress(prev[1]);
+        x.Backup(rel);
+        // the row goes in BEFORE the write: a stop in between leaves a row whose md5 does not match, so uninstall resets the progress instead
+        // of guessing (v1.6 review)
+        x.Row("config", string.Join(",", basep.Select(kv => kv.Key + "=" + kv.Value)), sticky ? "*" : U.Md5Of(neu));
+        U.WriteSafe(cfg, neu);
+    }
+    public static Dictionary<int, int> ParseProgress(string s)
+    {
+        var r = new Dictionary<int, int>();
+        foreach (var kv in (s ?? "").Split(new[] { ',' }, StringSplitOptions.RemoveEmptyEntries))
+        {
+            var p = kv.Split('='); int a, b;
+            if (p.Length == 2 && int.TryParse(p[0], System.Globalization.NumberStyles.Integer, System.Globalization.CultureInfo.InvariantCulture, out a) &&
+                int.TryParse(p[1], System.Globalization.NumberStyles.Integer, System.Globalization.CultureInfo.InvariantCulture, out b)) r[a] = b;
+        }
+        return r;
     }
 
     // ---- the exe, by CONTENT: any igi2.exe of the GOG build (GOG, widescreen patch, community 1.3 exes ...) where every byte our patch
@@ -926,7 +1239,9 @@ static class Installer
             var lst = L1.GetString(ch[pathIdx].Data).TrimEnd('\0');
             foreach (var nm in newNames) lst += ";" + nm;
             ch[pathIdx].Data = L1.GetBytes(lst + "\0");
-            ch.InsertRange(Math.Max(0, pathIdx - 1), add);
+            // before the PATH entry's own NAME when it has one (never between another NAME and its data)
+            int at = pathIdx > 0 && Encoding.ASCII.GetString(ch[pathIdx - 1].Tag) == "NAME" ? pathIdx - 1 : pathIdx;
+            ch.InsertRange(at, add);
         }
         else ch.AddRange(add);
     }
@@ -1050,8 +1365,9 @@ static class Installer
         try { ch = Ilff.Read(raw, out al, out form); }
         catch (Exception e) { Log.Write(rel + ": " + e); Warnings.Add(rel + " could not be read (" + e.Message + "): the mission's loading pictures are missing."); return; }
         bool pad = Ilff.Write(ch, al, form, true).Length == raw.Length;
-        var names = new Dictionary<string, int>();
-        for (int i = 0; i < ch.Count; i++) if (Encoding.ASCII.GetString(ch[i].Tag) == "NAME") names[Ilff.Name(ch[i])] = i;
+        // v1.6: a NAME is only usable with a data chunk after it (a file cut at a chunk boundary ends on a NAME); names compare case-insensitively
+        var names = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        for (int i = 0; i + 1 < ch.Count; i++) if (Encoding.ASCII.GetString(ch[i].Tag) == "NAME") names[Ilff.Name(ch[i])] = i;
         uint bodyAl = names.ContainsKey("LOCAL:menusystem/loading.jpg") ? ch[names["LOCAL:menusystem/loading.jpg"] + 1].Al : 4;
         foreach (var f in pics)
         {
@@ -1074,36 +1390,39 @@ static class Installer
         var m = Regex.Match(t, @"(?m)^(ExtraEnumeratedResolutions[ \t]*=)([^\r\n]*)");
         if (!m.Success) return;
         var have = m.Groups[2].Value.Split(',').Select(s => s.Trim()).Where(s => s.Length > 0).ToList();
-        foreach (var r in extra.Split(',').Select(s => s.Trim()).Where(s => s.Length > 0)) if (!have.Contains(r)) have.Add(r);
+        foreach (var r in extra.Split(',').Select(s => s.Trim()).Where(s => s.Length > 0)) if (!have.Contains(r, StringComparer.OrdinalIgnoreCase)) have.Add(r);
+        if (have.Count > 16) { Log.Write("dgVoodoo.conf: resolution list capped at 16 (dropped " + string.Join(", ", have.Skip(16)) + ")"); have = have.Take(16).ToList(); }   // dgVoodoo: "max 16"
         t = t.Substring(0, m.Groups[2].Index) + " " + string.Join(", ", have) + t.Substring(m.Groups[2].Index + m.Groups[2].Length);
-        File.WriteAllBytes(p, enc.GetBytes(t));
+        U.WriteSafe(p, enc.GetBytes(t));
     }
 }
 
 // ------------------------------------------------------------------------------------------------ uninstall
 static class Uninstaller
 {
+    // v1.6 (reviewed 11-25): every manifest row is undone on its own (one failure never stops the rest), the profile the player built is kept,
+    // old saves are merged (never deleted), and the backup folder is only removed when it IS our backup folder and everything went back
     public static int Run(Args a)
     {
         bool silent = a.Has("/S");
-        string here = Path.GetDirectoryName(Application.ExecutablePath);
+        string here = Path.GetDirectoryName(Program.ExePath);
         bool full = File.Exists(Path.Combine(here, "uninstall.dat"));
-        bool addon = File.Exists(Path.Combine(here, "manifest.txt"));
+        bool addon = File.Exists(U.OrTemp(Path.Combine(here, "manifest.txt"))) && string.Equals(Path.GetFileName(here.TrimEnd('\\')), Installer.BK, StringComparison.OrdinalIgnoreCase);
         if (!full && !addon) { Msg(silent, "Nothing to uninstall here."); return 1; }
         if (U.GameRunning(addon ? Path.GetDirectoryName(here) : here)) { Msg(silent, "IGI 2 is running - close the game first."); return 2; }
         string product = "Operation Sandstorm";
         if (!silent && MessageBox.Show("Remove " + product + "?", product, MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes) return 0;
-        string selfDir = here;
+        var errors = new List<string>();
         if (full)
         {
             var lines = File.ReadAllLines(Path.Combine(here, "uninstall.dat"));
             var head = lines[0].Split('|');
             foreach (var l in lines.Skip(1))
             {
-                var r = l.Split(new[] { '|' }, 2);
+                var r = l.Split(new[] { '|' }, 2); if (r.Length < 2) continue;
                 try
                 {
-                    if (r[0] == "f" && r[1] != "Uninstall.exe") { var p = Path.Combine(here, r[1]); if (File.Exists(p)) File.Delete(p); }
+                    if (r[0] == "f" && r[1] != "Uninstall.exe") U.DeleteFile(Path.Combine(here, r[1]));
                     else if (r[0] == "lnk" && File.Exists(r[1])) File.Delete(r[1]);
                 }
                 catch { }
@@ -1112,53 +1431,112 @@ static class Uninstaller
             // what the display script and the game wrote next to the files we installed (no player saves: savegames stays)
             foreach (var f in new[] { "dgVoodoo.conf.display-backup", "config.qvm.display-backup", "MultiMonitor.log", "Multiplayer.log", "igi2.RPT",
                                       "warninglog.txt", "flymode.log", "flymode_maxdamage.txt", @"hd\hdmod.log" })
-                try { var p = Path.Combine(here, f); if (File.Exists(p)) File.Delete(p); } catch { }
-            // whatever the game wrote itself (saves, profile, logs) stays only if the player asks: here we remove the folder tree we made
+                try { U.DeleteFile(Path.Combine(here, f)); } catch { }
             foreach (var d in Directory.GetDirectories(here, "*", SearchOption.AllDirectories).OrderByDescending(s => s.Length))
                 try { if (!Directory.EnumerateFileSystemEntries(d).Any()) Directory.Delete(d); } catch { }
-            U.Unregister(head[1]);
+            if (head.Length > 1) U.Unregister(head[1]);
         }
         else
         {
             string g = Path.GetDirectoryName(here);
-            var rows = File.ReadAllLines(Path.Combine(here, "manifest.txt")).Select(l => l.Split('|')).ToList();
+            var rows = File.ReadAllLines(U.OrTemp(Path.Combine(here, "manifest.txt"))).Where(l => l.Trim().Length > 0).Select(l => l.Split('|')).Where(r => r.Length >= 2).ToList();
             string key = "IGI2_OperationSandstorm"; string cfgRow = null, cfgMd5 = null;
-            foreach (var r in rows) { if (r[0] == "meta") { key = r[1]; product = r[2]; } if (r[0] == "config") { cfgRow = r[1]; cfgMd5 = r[2]; } }
-            foreach (var r in rows.Where(r => r[0] == "dir")) { var p = Path.Combine(g, r[1]); if (Directory.Exists(p)) Directory.Delete(p, true); }
-            foreach (var r in rows.Where(r => r[0] == "file"))
+            foreach (var r in rows)
             {
-                var p = Path.Combine(g, r[2]);
-                if (r[2].Equals("config.qvm", StringComparison.OrdinalIgnoreCase) && r[1] == "backup" && cfgMd5 != null && File.Exists(p) && U.Md5(p) != cfgMd5)
-                {
-                    // the player played since: keep the profile, put the campaign position back
-                    var basep = cfgRow.Split(new[] { ',' }, StringSplitOptions.RemoveEmptyEntries).Select(s => s.Split('=')).ToDictionary(s => int.Parse(s[0]), s => int.Parse(s[1]));
-                    File.WriteAllBytes(p, Qvm.SetProgress(File.ReadAllBytes(p), (k, cur) => basep.ContainsKey(k) ? basep[k] : 0));
-                    continue;
-                }
-                if (r[1] == "backup") { if (File.Exists(p)) File.Delete(p); File.Copy(Path.Combine(here, "files", r[2]), p); }
-                else if (File.Exists(p)) File.Delete(p);
+                if (r[0] == "meta" && r.Length >= 3) { key = r[1]; product = r[2]; }
+                if (r[0] == "config" && r.Length >= 3) { cfgRow = r[1]; cfgMd5 = r[2]; }
             }
+            Action<string, Action> step = (what, act) => { try { act(); } catch (Exception e) { Log.Write("uninstall " + what + ": " + e); errors.Add(what + ": " + e.Message); } };
+            foreach (var r in rows.Where(r => r[0] == "dir"))
+            {
+                var rel = r[1];
+                // only a folder inside MISSIONS (the mission folder we made) - never anything else
+                if (!rel.StartsWith("MISSIONS\\", StringComparison.OrdinalIgnoreCase) || rel.Contains("..")) continue;
+                step(rel, () => U.DeleteDir(Path.Combine(g, rel)));
+            }
+            foreach (var r in rows.Where(r => r[0] == "file" && r.Length >= 3))
+            {
+                var rel = r[2]; var p = Path.Combine(g, rel); var bp = Path.Combine(here, "files", rel);
+                if (rel.Contains("..")) continue;
+                if (rel.Equals("config.qvm", StringComparison.OrdinalIgnoreCase)) { step(rel, () => RestoreProfile(p, bp, r[1] == "backup", cfgRow, cfgMd5)); continue; }
+                step(rel, () =>
+                {
+                    if (r[1] == "backup")
+                    {
+                        if (!File.Exists(bp)) throw new Exception("the backup copy is missing (" + bp + ")");
+                        U.CopySafe(bp, p);
+                    }
+                    else U.DeleteFile(p);
+                });
+            }
+            foreach (var r in rows.Where(r => r[0] == "compat" && r.Length >= 3)) step("compatibility flag", () => U.SetCompatFlag(r[1], r[2] == "-" ? null : r[2]));
             foreach (var lang in new[] { "english", "USA" })
             {
                 var d = Path.Combine(g, "SCREENS", "intro", lang);
                 try { if (Directory.Exists(d) && !Directory.EnumerateFileSystemEntries(d).Any()) Directory.Delete(d); } catch { }
             }
-            if (rows.Any(r => r[0] == "file" && r[1] == "new" && r[2].Equals("IGI2HD.asi", StringComparison.OrdinalIgnoreCase)))
+            if (rows.Any(r => r[0] == "file" && r.Length >= 3 && r[1] == "new" && r[2].Equals("IGI2HD.asi", StringComparison.OrdinalIgnoreCase)))
             {
                 var hd = Path.Combine(g, "hd");                 // the log our HD add-on wrote, then the folder if it is empty
-                try { if (File.Exists(Path.Combine(hd, "hdmod.log"))) File.Delete(Path.Combine(hd, "hdmod.log")); if (Directory.Exists(hd) && !Directory.EnumerateFileSystemEntries(hd).Any()) Directory.Delete(hd); } catch { }
+                try { U.DeleteFile(Path.Combine(hd, "hdmod.log")); if (Directory.Exists(hd) && !Directory.EnumerateFileSystemEntries(hd).Any()) Directory.Delete(hd); } catch { }
             }
             foreach (var r in rows.Where(r => r[0] == "lnk")) try { if (File.Exists(r[1])) File.Delete(r[1]); } catch { }
+            // old Sandstorm saves: merged into <game>\savegames_sandstorm_old (a name already there gets " (2)")
             var old = Path.Combine(here, "old_saves");
-            if (Directory.Exists(old)) { var keep = Path.Combine(g, "savegames_sandstorm_old"); if (!Directory.Exists(keep)) Directory.Move(old, keep); }
-            U.Unregister(key);
+            if (Directory.Exists(old))
+                step("old saves", () =>
+                {
+                    var keep = Path.Combine(g, "savegames_sandstorm_old"); Directory.CreateDirectory(keep);
+                    foreach (var f in Directory.GetFiles(old)) File.Move(f, U.FreeName(keep, Path.GetFileName(f)));
+                    Directory.Delete(old, false);
+                });
+            if (errors.Count == 0) U.Unregister(key);
         }
-        // delete this exe (and its folder when empty) after it exits
-        string self = Application.ExecutablePath;
-        string script = "/c ping -n 3 127.0.0.1 >nul & del /f /q \"" + self + "\"" + (addon ? " & rmdir /s /q \"" + here + "\"" : " & rmdir \"" + here + "\"");
-        Process.Start(new ProcessStartInfo("cmd.exe", script) { CreateNoWindow = true, UseShellExecute = false, WindowStyle = ProcessWindowStyle.Hidden });
+        if (errors.Count > 0)
+        {
+            // keep the uninstaller, the backups and the Apps entry: the player can run it again after fixing the cause
+            Msg(silent, "Some files could not be put back (close the game and any program using its files, then uninstall again):\n- " + string.Join("\n- ", errors.Take(10)) +
+                        (Log.PathName != null ? "\n\nDetails: " + Log.PathName : ""));
+            return 3;
+        }
         Msg(silent, product + " was removed.");
+        // delete this exe (and the backup folder) after it exits: retried until the exe is free (the message above has already been closed)
+        string self = Program.ExePath;
+        string sys = Environment.SystemDirectory;
+        string script = "/c for /l %i in (1,1,20) do (ping -n 2 127.0.0.1 >nul & del /f /q \"" + self + "\" 2>nul & if not exist \"" + self + "\" (" +
+                        (addon ? "rmdir /s /q \"" + here + "\"" : "rmdir \"" + here + "\"") + " & exit))";
+        try { Process.Start(new ProcessStartInfo(Path.Combine(sys, "cmd.exe"), script) { CreateNoWindow = true, UseShellExecute = false, WindowStyle = ProcessWindowStyle.Hidden, WorkingDirectory = sys }); } catch { }
         return 0;
+    }
+
+    // the profile: back to the original only when the player did not touch it since the install (md5 matches); otherwise their file stays with the
+    // campaign position put back. A damaged original never replaces a working profile.
+    static void RestoreProfile(string p, string bp, bool hadBackup, string cfgRow, string cfgMd5)
+    {
+        byte[] cur = File.Exists(p) ? File.ReadAllBytes(p) : null;
+        bool curOk = Qvm.Readable(cur);
+        byte[] bk = hadBackup && File.Exists(bp) ? File.ReadAllBytes(bp) : null;
+        bool bkOk = Qvm.Readable(bk);
+        bool untouched = cur != null && cfgMd5 != null && cfgMd5 != "*" && U.Md5(p) == cfgMd5;
+        // no profile row at all (an install that stopped before the profile step): a working original simply goes back
+        if (cfgMd5 == null && hadBackup && bkOk) { U.CopySafe(bp, p); return; }
+        var basep = Installer.ParseProgress(cfgRow);
+        Func<int, int, int> back = (k, v) => basep.ContainsKey(k) ? basep[k] : 0;
+        if (untouched && (!hadBackup || bkOk || !curOk))
+        {
+            if (hadBackup) { if (bk == null) throw new Exception("the backup copy is missing"); U.CopySafe(bp, p); } else U.DeleteFile(p);
+            return;
+        }
+        if (curOk)
+        {
+            var o = Qvm.TrySetProgress(cur, back);
+            if (o != null) { U.WriteSafe(p, o); return; }
+            if (bkOk) { U.CopySafe(bp, p); return; }
+            return;                                           // keep the working profile as it is
+        }
+        // the current profile is damaged or gone: the original if there was one
+        if (hadBackup && bk != null) U.CopySafe(bp, p);
+        else if (!hadBackup) U.DeleteFile(p);
     }
     static void Msg(bool silent, string s) { if (silent) Console.WriteLine(s); else MessageBox.Show(s, "Operation Sandstorm"); }
 }
@@ -1170,7 +1548,7 @@ class Wizard : Form
     Payload C; Options O = new Options(); int page = 0;
     Label title; Panel body; Button back, next, cancel;
     TextBox dirBox; ComboBox displayBox; CheckBox launch; ProgressBar bar; Label progLabel;
-    bool installing;
+    bool installing; DateTime shown = DateTime.Now;
 
     public Wizard(Payload c)
     {
@@ -1179,7 +1557,7 @@ class Wizard : Form
         Text = c.S("product") + " Setup";
         ClientSize = new Size(560, 400); FormBorderStyle = FormBorderStyle.FixedDialog; MaximizeBox = false; StartPosition = FormStartPosition.CenterScreen;
         Font = new Font("Segoe UI", 9.5f); BackColor = Color.White;
-        try { Icon = Icon.ExtractAssociatedIcon(Application.ExecutablePath); } catch { }
+        try { Icon = Icon.ExtractAssociatedIcon(Program.ExePath); } catch { }
         title = new Label { Left = 20, Top = 16, Width = 520, Height = 30, Font = new Font("Segoe UI", 14f, FontStyle.Bold) };
         body = new Panel { Left = 20, Top = 52, Width = 520, Height = 290 };
         Controls.Add(title); Controls.Add(body);
@@ -1198,7 +1576,7 @@ class Wizard : Form
 
     void Show(int p)
     {
-        page = p; body.Controls.Clear();
+        page = p; body.Controls.Clear(); shown = DateTime.Now;
         back.Visible = p == 1; next.Enabled = true; cancel.Enabled = p < 3;
         next.Text = p == 1 ? "Install" : p == 3 ? "Finish" : "Next >";
         if (p == 0)
@@ -1214,7 +1592,7 @@ class Wizard : Form
         {
             title.Text = C.Full ? "Where to install" : "Your IGI 2 folder";
             body.Controls.Add(new Label { Left = 0, Top = 0, Width = 520, Height = 22, ForeColor = Color.DimGray,
-                                          Text = C.Full ? "The game is installed into this folder." : "Setup found this IGI 2 folder - change it if needed." });
+                                          Text = C.Full ? "The game is installed into this folder." : string.IsNullOrEmpty(O.Dir) ? "Pick your IGI 2 folder (the one with igi2.exe in it) with Browse..." : "Setup found this IGI 2 folder - change it if needed." });
             dirBox = new TextBox { Left = 0, Top = 28, Width = 420, Text = O.Dir };
             var br = new Button { Left = 428, Top = 26, Width = 90, Text = "Browse..." };
             br.Click += (s, e) =>
@@ -1251,10 +1629,11 @@ class Wizard : Form
     {
         if (page == 1)
         {
-            O.Dir = dirBox.Text.Trim();
+            O.Dir = Installer.CleanDir(dirBox.Text); dirBox.Text = O.Dir;
             O.Display = displayBox.SelectedIndex == 1 ? "low" : displayBox.SelectedIndex == 2 ? "verylow" : "sharp";
             var err = Installer.Check(C, O.Dir);
             if (err != null) { MessageBox.Show(this, err, Text, MessageBoxButtons.OK, MessageBoxIcon.Warning); return; }
+            if ((DateTime.Now - shown).TotalMilliseconds < 600) return;      // a double-click on "Next" never also clicks "Install"
             Show(2); StartInstall(); return;
         }
         if (page == 3)
@@ -1278,9 +1657,12 @@ class Wizard : Form
                 installing = false;
                 if (err != null)
                 {
-                    Log.Write("ERROR at \"" + progLabel.Text + "\": " + err);
-                    MessageBox.Show(this, "Setup failed (" + progLabel.Text + "): " + err.Message + "\n\nYour game files changed so far are in " + Installer.BK + " and come back with Uninstall." +
-                                    (Log.PathName != null ? "\n\nPlease send this file to 1QDeath (Discord):\n" + Log.PathName : ""), Text, MessageBoxButtons.OK, MessageBoxIcon.Error);
+                    Log.Write("ERROR at \"" + Installer.Step + "\": " + err);
+                    bool changed = Installer.Changed;
+                    MessageBox.Show(this, "Setup failed (" + Installer.Step + "): " + Program.Friendly(err) +
+                                    (changed ? "\n\nRun Setup again after fixing this, or remove what was installed with Windows Settings > Apps > Operation Sandstorm (every changed file is backed up in " + Installer.BK + ")."
+                                             : "\n\nNothing in your game was changed.") +
+                                    (Log.PathName != null ? "\n\nIf it keeps failing, send this file to 1QDeath (Discord):\n" + Log.PathName : ""), Text, MessageBoxButtons.OK, MessageBoxIcon.Error);
                     Close();
                 }
                 else

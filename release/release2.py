@@ -141,7 +141,7 @@ Frame rate: capped at 60 - change FPSLimit in dgVoodoo.conf for more.
 '''
 
 ADDON_README = '''
-OPERATION SANDSTORM 1.4 - a new IGI 2 mission
+OPERATION SANDSTORM 1.6 - a new IGI 2 mission
 
 Run Setup.exe, pick your IGI 2 folder, Install. Sandstorm comes after the original missions and is unlocked.
 Uninstall: Windows Settings > Apps > Operation Sandstorm (every changed file comes back).
@@ -306,7 +306,7 @@ def addon_payload(st, exe, display):
         % (len(recipes), ref_total >> 20, own_total >> 20, len(exe_patch['runs']), len(exe_patch['tail']) // 2))
     readme(os.path.join(pay, 'Sandstorm - README.txt'), ADDON_README)
     exe_orig = [R.sha1(os.path.join(R.PRE_PATCH, 'igi2.exe')), R.sha1(os.path.join(REPO, 'backup', 'igi2.exe.original-6afe26e3'))]
-    setup = dict(mode='addon', product='Operation Sandstorm', version='1.4', key='IGI2_OperationSandstorm', lang=lang, sprites=sprites,
+    setup = dict(mode='addon', product='Operation Sandstorm', version='1.6', key='IGI2_OperationSandstorm', lang=lang, sprites=sprites,
                  publisher='1QDeath', made_by=BRAND['made_by'], discord=BRAND['discord'], thanks='',
                  welcome='This adds Operation Sandstorm, a new single-player mission, to your IGI 2: Covert Strike (any version: '
                          'GOG, retail / CD with the official patches, other stores, community patches). Your original missions stay; '
@@ -328,7 +328,7 @@ def build_dir_of(st):
 
 def full_setup(st):
     size = sum(os.path.getsize(os.path.join(st, f)) for f in walk(st))
-    return dict(mode='full', product='IGI 2 - Operation Sandstorm', version='1.4', key='IGI2_OperationSandstorm_Full',
+    return dict(mode='full', product='IGI 2 - Operation Sandstorm', version='1.6', key='IGI2_OperationSandstorm_Full',
                 publisher='1QDeath', made_by=BRAND['made_by'], discord=BRAND['discord'], thanks='',
                 welcome='This installs IGI 2: Covert Strike with Operation Sandstorm, a new single-player mission.',
                 default_dir=r'C:\Games\IGI2 Sandstorm', size=size, mission_id=MID, sharp_conf=SHARP_CONF)
