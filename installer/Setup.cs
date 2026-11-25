@@ -31,6 +31,7 @@ static class Program
         Application.EnableVisualStyles();
         Application.SetCompatibleTextRenderingDefault(false);
         var a = new Args(args);
+        try { Log.PathName = Path.Combine(Path.GetTempPath(), "Sandstorm_Setup.log"); Log.Write("---- " + Application.ExecutablePath + " " + string.Join(" ", args)); } catch { }
         try
         {
             if (a.Has("/uninstall")) return Uninstaller.Run(a);
@@ -268,16 +269,21 @@ static class Ilff
     public class Chunk { public byte[] Tag; public byte[] Data; public uint Al; }
     public static List<Chunk> Read(byte[] d, out uint align, out byte[] form)
     {
-        if (Encoding.ASCII.GetString(d, 0, 4) != "ILFF") throw new Exception("not an ILFF file");
+        if (d == null || d.Length < 20 || Encoding.ASCII.GetString(d, 0, 4) != "ILFF") throw new Exception("not an ILFF file (" + (d == null ? 0 : d.Length) + " bytes)");
         align = BitConverter.ToUInt32(d, 8); form = new byte[4]; Array.Copy(d, 16, form, 0, 4);
         var r = new List<Chunk>(); int p = 20;
         while (p < d.Length)
         {
+            // v1.5: a damaged / modded file (cut short, bad chunk sizes) is a clear error, never an index crash
+            if (p + 16 > d.Length) throw new Exception("damaged file: chunk header cut short at byte " + p);
             var tg = new byte[4]; Array.Copy(d, p, tg, 0, 4);
             var c = new Chunk { Tag = tg, Al = BitConverter.ToUInt32(d, p + 8) };
-            int sz = (int)BitConverter.ToUInt32(d, p + 4); uint nx = BitConverter.ToUInt32(d, p + 12);
-            c.Data = new byte[sz]; Array.Copy(d, p + 16, c.Data, 0, sz); r.Add(c);
-            if (nx == 0) break; p += (int)nx;
+            long sz = BitConverter.ToUInt32(d, p + 4); uint nx = BitConverter.ToUInt32(d, p + 12);
+            if (p + 16 + sz > d.Length) throw new Exception("damaged file: chunk at byte " + p + " runs past the end");
+            c.Data = new byte[sz]; Array.Copy(d, p + 16, c.Data, 0, (int)sz); r.Add(c);
+            if (nx == 0) break;
+            if (nx < 16 || p + (long)nx > int.MaxValue) throw new Exception("damaged file: bad chunk link at byte " + p);
+            p += (int)nx;
         }
         return r;
     }
@@ -308,11 +314,27 @@ static class Qvm
 
     class Site { public int Diff; public int Val; public int At; public int W; }
 
+    // v1.5: a usable config.qvm = LOOP header + code inside the file (a 0-byte / cut profile from a game crash is not)
+    public static bool Readable(byte[] b)
+    {
+        try
+        {
+            if (b == null || b.Length < 64 || Encoding.ASCII.GetString(b, 0, 4) != "LOOP") return false;
+            long code = U32(b, 44), size = U32(b, 48), symT = U32(b, 12), symD = U32(b, 16), symTS = U32(b, 20);
+            if (code + size > b.Length || symT + symTS > b.Length || symD >= b.Length) return false;
+            for (int k = 0; k < symTS / 4; k++) { long o = symD + U32(b, (int)symT + 4 * k); if (o < 0 || o >= b.Length || Array.IndexOf(b, (byte)0, (int)o) < 0) return false; }
+            int c0, s0; Find(b, out c0, out s0);
+            return true;
+        }
+        catch { return false; }
+    }
+
     static List<Site> Find(byte[] b, out int code, out int size)
     {
-        code = (int)U32(b, 44); size = (int)U32(b, 48);
+        code = 0; size = 0;
         var r = new List<Site>();
-        if (Encoding.ASCII.GetString(b, 0, 4) != "LOOP") return r;
+        if (b == null || b.Length < 64 || Encoding.ASCII.GetString(b, 0, 4) != "LOOP") return r;
+        code = (int)U32(b, 44); size = (int)U32(b, 48);
         int symT = (int)U32(b, 12), symD = (int)U32(b, 16), symTS = (int)U32(b, 20), idx = -1;
         for (int k = 0; k < symTS / 4; k++)
         {
@@ -709,7 +731,16 @@ static class Installer
             // profile: Sandstorm (last in the list) unlocked
             int last = ids.Count - 1;
             var cfg = Path.Combine(g, "config.qvm");
-            if (File.Exists(cfg))
+            // v1.5 (a friend's v1.4 install died here: "Index was out of range ... startIndex"): a damaged profile (0 bytes / cut short
+            // after a game crash) is replaced by the default one - backed up, restored on uninstall
+            bool cfgOk = File.Exists(cfg) && Qvm.Readable(File.ReadAllBytes(x.Files.ContainsKey("config.qvm") && x.Files["config.qvm"] == "backup" ? x.Orig("config.qvm") : cfg)) && Qvm.Readable(File.ReadAllBytes(cfg));
+            if (File.Exists(cfg) && !cfgOk)
+            {
+                Log.Write("config.qvm unreadable (" + new FileInfo(cfg).Length + " bytes): default profile used");
+                Warnings.Add("Your game profile (config.qvm) was damaged, so it was replaced by a fresh one (the old file is in " + BK + "). Set your video / control options again in the game.");
+                x.Put(Qvm.SetProgress(Entry(z, "shared/config_default.qvm"), (k, cur) => last), "config.qvm");
+            }
+            else if (cfgOk)
             {
                 x.Backup("config.qvm");
                 var b = File.ReadAllBytes(x.Orig("config.qvm"));
@@ -932,7 +963,9 @@ static class Installer
         var rel = Path.Combine("MENUSYSTEM", "missionsprites.res");
         if (!File.Exists(Path.Combine(x.G, rel))) { Warnings.Add("MENUSYSTEM\\missionsprites.res not found: the mission picture in the menu is missing."); return; }
         var raw = File.ReadAllBytes(x.Files.ContainsKey(rel) ? x.Orig(rel) : Path.Combine(x.G, rel));
-        uint al; byte[] form; var ch = Ilff.Read(raw, out al, out form);
+        uint al; byte[] form; List<Ilff.Chunk> ch;
+        try { ch = Ilff.Read(raw, out al, out form); }
+        catch (Exception e) { Log.Write(rel + ": " + e); Warnings.Add(rel + " could not be read (" + e.Message + "): the mission picture in the menu is missing."); return; }
         bool pad = PadOf(raw, ch, al, form);
         var entries = c.Map("sprites").Select(kv => new KeyValuePair<string, byte[]>(kv.Key, Entry(z, kv.Value))).ToList();
         x.Backup(rel);
@@ -1013,8 +1046,9 @@ static class Installer
     {
         string rel = Path.Combine("MENUSYSTEM", "loadingscreen.res");
         x.Backup(rel);
-        var raw = File.ReadAllBytes(x.Orig(rel)); uint al; byte[] form;
-        var ch = Ilff.Read(raw, out al, out form);
+        var raw = File.ReadAllBytes(x.Orig(rel)); uint al; byte[] form; List<Ilff.Chunk> ch;
+        try { ch = Ilff.Read(raw, out al, out form); }
+        catch (Exception e) { Log.Write(rel + ": " + e); Warnings.Add(rel + " could not be read (" + e.Message + "): the mission's loading pictures are missing."); return; }
         bool pad = Ilff.Write(ch, al, form, true).Length == raw.Length;
         var names = new Dictionary<string, int>();
         for (int i = 0; i < ch.Count; i++) if (Encoding.ASCII.GetString(ch[i].Tag) == "NAME") names[Ilff.Name(ch[i])] = i;
@@ -1242,7 +1276,13 @@ class Wizard : Form
             BeginInvoke((Action)(() =>
             {
                 installing = false;
-                if (err != null) { MessageBox.Show(this, "Setup failed: " + err.Message, Text, MessageBoxButtons.OK, MessageBoxIcon.Error); Close(); }
+                if (err != null)
+                {
+                    Log.Write("ERROR at \"" + progLabel.Text + "\": " + err);
+                    MessageBox.Show(this, "Setup failed (" + progLabel.Text + "): " + err.Message + "\n\nYour game files changed so far are in " + Installer.BK + " and come back with Uninstall." +
+                                    (Log.PathName != null ? "\n\nPlease send this file to 1QDeath (Discord):\n" + Log.PathName : ""), Text, MessageBoxButtons.OK, MessageBoxIcon.Error);
+                    Close();
+                }
                 else
                 {
                     if (Installer.Warnings.Count > 0) MessageBox.Show(this, string.Join("\n\n", Installer.Warnings), Text + " - please read", MessageBoxButtons.OK, MessageBoxIcon.Information);
